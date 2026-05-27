@@ -3,3 +3,6 @@ __pycache__/
 html_dumps/
 *.db
 maimai_auth_state.json
+dist/
+build/
+*.spec
