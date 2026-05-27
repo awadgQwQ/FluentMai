@@ -1,0 +1,5 @@
+__pycache__/
+.idea/
+html_dumps/
+*.db
+maimai_auth_state.json
