@@ -49,12 +49,12 @@ class HomeInterface(QWidget):
         desc.setStyleSheet("color: #a0a0a0; font-size: 14px; margin-bottom: 8px;")
         self.layout.addWidget(desc)
 
-        # ---- Cookie 输入 ----
+        # ---- Cookie 输入 (多行, 接受 Reqable 原始 dump) ----
         cookie_card, self.cookie_input = self._make_input_card(
             i18n.tr("home_cookie_label"),
             i18n.tr("home_cookie_placeholder"),
             i18n.tr("home_cookie_hint"),
-            password_mode=True,
+            multiline=True,
         )
         self.layout.addWidget(cookie_card)
 
@@ -108,7 +108,7 @@ class HomeInterface(QWidget):
 
     # ------------------------------------------------------------------
     def _make_input_card(self, label: str, placeholder: str, hint: str,
-                         password_mode: bool = False):
+                         password_mode: bool = False, multiline: bool = False):
         card = CardWidget()
         vbox = QVBoxLayout(card)
         vbox.setContentsMargins(20, 16, 20, 16)
@@ -118,22 +118,39 @@ class HomeInterface(QWidget):
         title_lbl.setStyleSheet("font-size: 14px;")
         vbox.addWidget(title_lbl)
 
-        input_widget = QLineEdit()
-        input_widget.setPlaceholderText(placeholder)
-        input_widget.setMinimumHeight(36)
-        input_widget.setStyleSheet("""
-            QLineEdit {
-                background: #12121e;
-                border: 1px solid #333;
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: #e0e0e0;
-                font-size: 13px;
-            }
-            QLineEdit:focus { border-color: #51bcf3; }
-        """)
-        if password_mode:
-            input_widget.setEchoMode(QLineEdit.EchoMode.Password)
+        if multiline:
+            input_widget = QTextEdit()
+            input_widget.setPlaceholderText(placeholder)
+            input_widget.setMinimumHeight(120)
+            input_widget.setMaximumHeight(200)
+            input_widget.setStyleSheet("""
+                QTextEdit {
+                    background: #12121e;
+                    border: 1px solid #333;
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                    color: #e0e0e0;
+                    font-size: 13px;
+                }
+                QTextEdit:focus { border-color: #51bcf3; }
+            """)
+        else:
+            input_widget = QLineEdit()
+            input_widget.setPlaceholderText(placeholder)
+            input_widget.setMinimumHeight(36)
+            input_widget.setStyleSheet("""
+                QLineEdit {
+                    background: #12121e;
+                    border: 1px solid #333;
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                    color: #e0e0e0;
+                    font-size: 13px;
+                }
+                QLineEdit:focus { border-color: #51bcf3; }
+            """)
+            if password_mode:
+                input_widget.setEchoMode(QLineEdit.EchoMode.Password)
         vbox.addWidget(input_widget)
 
         if hint:
@@ -145,7 +162,10 @@ class HomeInterface(QWidget):
 
     # ------------------------------------------------------------------
     def _on_sync_clicked(self):
-        cookie_str = self.cookie_input.text().strip()
+        if hasattr(self.cookie_input, 'toPlainText'):
+            cookie_str = self.cookie_input.toPlainText().strip()
+        else:
+            cookie_str = self.cookie_input.text().strip()
         import_token = self.token_input.text().strip()
 
         if not cookie_str or not import_token:

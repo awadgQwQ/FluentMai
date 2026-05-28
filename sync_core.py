@@ -106,6 +106,120 @@ def validate_cookie(cookies: dict[str, str]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Reqable 原始抓包解析
+# ---------------------------------------------------------------------------
+
+# Reqable HTTP/2 伪头 — 不需要提取
+_REQABLE_PSEUDO_HEADERS = {":method", ":authority", ":path", ":scheme"}
+
+# Reqable dump → 请求头映射 (指纹头 + Fetch Metadata)
+_REQABLE_HEADER_MAP = {
+    "user-agent": "User-Agent",
+    "accept": "Accept",
+    "accept-language": "Accept-Language",
+    "x-requested-with": "X-Requested-With",
+    "sec-ch-ua": "Sec-CH-UA",
+    "sec-ch-ua-mobile": "Sec-CH-UA-Mobile",
+    "sec-ch-ua-platform": "Sec-CH-UA-Platform",
+    "referer": "Referer",
+    "sec-fetch-site": "Sec-Fetch-Site",
+    "sec-fetch-mode": "Sec-Fetch-Mode",
+    "sec-fetch-user": "Sec-Fetch-User",
+    "sec-fetch-dest": "Sec-Fetch-Dest",
+    "upgrade-insecure-requests": "Upgrade-Insecure-Requests",
+}
+
+# 页面导航请求必须的 Fetch Metadata (覆盖从 JS/CSS 等子请求抓到的错误值)
+_NAVIGATION_HEADERS = {
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
+def is_reqable_dump(text: str) -> bool:
+    """检测输入文本是否为 Reqable 原始 HTTP 请求 dump。"""
+    markers = (":method:", ":authority:", ":path:", ":scheme:")
+    return any(m in text for m in markers)
+
+
+def parse_reqable_dump(raw_text: str) -> dict[str, Any]:
+    """解析 Reqable 原始 HTTP 请求头 dump, 提取 Cookie、UA、指纹头。
+
+    输入: Reqable 抓包复制的完整请求头文本
+    输出: {
+        "cookie_str":  "key1=value1; key2=value2; ...",
+        "user_agent":  "Mozilla/5.0 ..." | None,
+        "headers":     {"x-requested-with": "com.tencent.mm", ...},
+    }
+    """
+    cookies: dict[str, str] = {}
+    fingerprint: dict[str, str] = {}
+    user_agent: Optional[str] = None
+
+    for line in raw_text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # 分割 "key: value"
+        idx = line.find(": ")
+        if idx < 0:
+            continue
+        key = line[:idx].strip().lower()
+        value = line[idx + 2:].strip()
+
+        if key in _REQABLE_PSEUDO_HEADERS:
+            continue
+
+        if key == "cookie":
+            if "=" in value:
+                k, _, v = value.partition("=")
+                cookies[k.strip()] = v.strip()
+            continue
+
+        if key == "user-agent":
+            user_agent = value
+
+        if key in _REQABLE_HEADER_MAP:
+            fingerprint[key] = value
+
+    cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+    return {
+        "cookie_str": cookie_str,
+        "user_agent": user_agent,
+        "headers": fingerprint,
+    }
+
+
+def _build_request_headers(extra_headers: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """构建页面导航请求头, 优先使用 Reqable 提取的指纹, 补全缺失值。"""
+    headers: dict[str, str] = {}
+
+    if extra_headers:
+        for reqable_key, http_key in _REQABLE_HEADER_MAP.items():
+            if reqable_key in extra_headers:
+                headers[http_key] = extra_headers[reqable_key]
+
+    # 默认值
+    headers.setdefault("User-Agent", MOBILE_UA)
+    headers.setdefault(
+        "Accept",
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,"
+        "image/wxpic,image/webp,image/apng,*/*;q=0.8,"
+        "application/signed-exchange;v=b3;q=0.7",
+    )
+    headers.setdefault("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+    headers.setdefault("Referer", "https://maimai.wahlap.com/maimai-mobile/home/")
+
+    # 页面导航请求的 Fetch Metadata (覆盖 JS/CSS 子请求的错误值)
+    headers.update(_NAVIGATION_HEADERS)
+
+    return headers
+
+
+# ---------------------------------------------------------------------------
 # HTTP 请求工具
 # ---------------------------------------------------------------------------
 
@@ -142,22 +256,19 @@ def _retry_request(
 def fetch_all_difficulty_htmls(
     session: requests.Session,
     progress_cb: Optional[ProgressCallback] = None,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> list[str]:
     """遍历 5 个难度, 用 requests 获取每个难度的成绩页面 HTML。
 
     Args:
         session: 已注入 Wahlap Cookie 的 requests.Session。
         progress_cb: 进度回调。
+        extra_headers: Reqable 解析出的指纹头, 优先于默认值。
 
     Returns:
         list[str]: 5 个 HTML 字符串 (diff 0..4)。
     """
-    headers = {
-        "User-Agent": MOBILE_UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Referer": "https://maimai.wahlap.com/maimai-mobile/record/",
-    }
+    headers = _build_request_headers(extra_headers)
 
     htmls: list[str] = []
 
@@ -295,10 +406,75 @@ def upload_html_to_divingfish(
 def _upload_single_html(html: str, import_token: str) -> dict[str, int]:
     """上传单个 HTML 到水鱼。
 
-    策略: 先试 update_records_html 一步到位;
-    如果返回 400 (auth 问题) 则回退到 8089/page + update_records。
+    主方案: 8089/page 解析 HTML → update_records 上传 (支持 Import-Token)
+    备选: update_records_html 一步到位 (仅支持 JWT 登录, 可能静默失败)
     """
-    # ---- 方案 A: update_records_html ----
+    # ---- 方案 A: 8089/page → update_records (支持 Import-Token) ----
+    try:
+        logger.info("主方案: 8089/page 解析 HTML...")
+        resp = _retry_request(
+            "POST",
+            DIVINGFISH_PAGE_API,
+            data=html.encode("utf-8"),
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+        )
+
+        if resp.status_code != 200:
+            logger.warning("8089/page 返回 HTTP %d, 回退到 update_records_html", resp.status_code)
+            raise requests.HTTPError(f"8089/page returned {resp.status_code}")
+
+        try:
+            records = resp.json()
+        except json.JSONDecodeError:
+            # 如果 8089/page 返回非列表 (如 {"message": "success"}),
+            # 说明它已用其他方式处理了, 回退到 update_records_html
+            logger.warning("8089/page 返回非 JSON, 回退到 update_records_html")
+            raise
+
+        if not isinstance(records, list):
+            logger.warning("8089/page 返回非列表 (%s), 回退到 update_records_html",
+                           type(records).__name__)
+            raise TypeError(f"expected list, got {type(records).__name__}")
+
+        if not records:
+            logger.info("8089/page 返回空列表, 该难度无成绩记录")
+            return {"updates": 0, "creates": 0}
+
+        logger.info("8089/page 解析出 %d 条记录", len(records))
+
+        # Step A2: 上传到 update_records
+        resp2 = _retry_request(
+            "POST",
+            DIVINGFISH_UPDATE_JSON,
+            json=records,
+            headers={
+                "Content-Type": "application/json",
+                "Import-Token": import_token,
+            },
+        )
+
+        if resp2.status_code >= 500:
+            logger.warning("update_records 返回 HTTP %d (已知水鱼后端 bug, 数据可能已入库)",
+                           resp2.status_code)
+            return {"updates": 0, "creates": 0}
+
+        resp2.raise_for_status()
+        try:
+            data = resp2.json()
+        except json.JSONDecodeError:
+            logger.warning("update_records 返回非 JSON, HTTP %d", resp2.status_code)
+            return {"updates": 0, "creates": 0}
+
+        return {
+            "updates": data.get("updates", 0),
+            "creates": data.get("creates", 0),
+        }
+
+    except Exception as exc:
+        logger.info("主方案失败 (%s), 回退到 update_records_html", exc)
+
+    # ---- 方案 B: update_records_html (备选, 需要 JWT 登录) ----
+    logger.info("备选方案: update_records_html 一步上传...")
     try:
         resp = _retry_request(
             "POST",
@@ -314,70 +490,21 @@ def _upload_single_html(html: str, import_token: str) -> dict[str, int]:
             try:
                 data = resp.json()
             except json.JSONDecodeError:
-                logger.warning("update_records_html 返回非 JSON, HTTP %d", resp.status_code)
+                logger.warning("update_records_html 返回非 JSON")
                 return {"updates": 0, "creates": 0}
+            logger.info("update_records_html 响应: %s",
+                        json.dumps(data, ensure_ascii=False)[:200])
             return {
                 "updates": data.get("updates", 0),
                 "creates": data.get("creates", 0),
             }
 
-        # 400/401 可能是 auth 问题, 回退到方案 B
-        if resp.status_code in (400, 401, 403):
-            logger.info("update_records_html 返回 %d, 回退到 8089/page 管线", resp.status_code)
-        else:
-            logger.warning("update_records_html 返回 HTTP %d", resp.status_code)
+        logger.warning("update_records_html 返回 HTTP %d", resp.status_code)
+        return {"updates": 0, "creates": 0}
 
     except Exception as exc:
-        logger.warning("update_records_html 请求异常: %s, 回退到 8089/page 管线", exc)
-
-    # ---- 方案 B: 8089/page → update_records (prober_api.go 原版管线) ----
-    # Step B1: HTML → JSON
-    logger.info("使用备选管线: 8089/page → update_records")
-    resp = _retry_request(
-        "POST",
-        DIVINGFISH_PAGE_API,
-        data=html.encode("utf-8"),
-        headers={"Content-Type": "text/plain; charset=utf-8"},
-    )
-    resp.raise_for_status()
-    try:
-        records = resp.json()
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"8089/page 返回非 JSON: {resp.text[:200]}") from exc
-
-    if not isinstance(records, list):
-        raise TypeError(f"8089/page 期望 list, 实际 {type(records).__name__}")
-
-    if not records:
-        logger.info("8089/page 返回空列表, 该难度无成绩记录")
-        return {"updates": 0, "creates": 0}
-
-    # Step B2: JSON → update_records
-    resp2 = _retry_request(
-        "POST",
-        DIVINGFISH_UPDATE_JSON,
-        json=records,
-        headers={
-            "Content-Type": "application/json",
-            "Import-Token": import_token,
-        },
-    )
-
-    if resp2.status_code >= 500:
-        logger.warning("update_records 返回 HTTP %d (已知水鱼后端 bug, 数据可能已入库)", resp2.status_code)
-        return {"updates": 0, "creates": 0}
-
-    resp2.raise_for_status()
-    try:
-        data = resp2.json()
-    except json.JSONDecodeError:
-        logger.warning("update_records 返回非 JSON, HTTP %d", resp2.status_code)
-        return {"updates": 0, "creates": 0}
-
-    return {
-        "updates": data.get("updates", 0),
-        "creates": data.get("creates", 0),
-    }
+        logger.error("备选方案也失败: %s", exc)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +533,18 @@ def sync(
             "error": str | None,
         }
     """
-    # ---- Step 0: 解析 Cookie ----
+    # ---- Step 0: 解析输入 (自动检测 Reqable dump vs 纯 Cookie) ----
+    extra_headers: dict[str, str] = {}
+    if is_reqable_dump(cookie_str):
+        logger.info("检测到 Reqable 原始 dump, 自动解析...")
+        parsed = parse_reqable_dump(cookie_str)
+        cookie_str = parsed["cookie_str"]
+        extra_headers = parsed["headers"]
+        if parsed["user_agent"]:
+            logger.info("使用真实 UA: %.60s...", parsed["user_agent"])
+    else:
+        logger.info("使用纯 Cookie 字符串模式")
+
     cookies = parse_cookie_str(cookie_str)
     missing = validate_cookie(cookies)
     if missing:
@@ -429,7 +567,11 @@ def sync(
     session.trust_env = False
     for k, v in cookies.items():
         session.cookies.set(k, v, domain="maimai.wahlap.com")
-    session.headers.update({"User-Agent": MOBILE_UA})
+
+    # 构建 probe 请求头 (优先使用 Reqable 指纹)
+    probe_headers = _build_request_headers(extra_headers)
+
+    session.headers.update(probe_headers)
 
     logger.info("验证 Cookie 有效性...")
     try:
@@ -437,7 +579,7 @@ def sync(
             "GET",
             "https://maimai.wahlap.com/maimai-mobile/record/",
             session=session,
-            headers={"User-Agent": MOBILE_UA},
+            headers=probe_headers,
         )
     except Exception as exc:
         msg = f"Cookie 连通性测试失败: {exc}"
@@ -478,7 +620,7 @@ def sync(
 
     # ---- Step 2: 遍历 5 个难度, 抓取 HTML ----
     logger.info("开始抓取 5 个难度页面 (间隔 %.1fs)...", WAHLAP_DELAY_SEC)
-    htmls = fetch_all_difficulty_htmls(session, progress_callback)
+    htmls = fetch_all_difficulty_htmls(session, progress_callback, extra_headers)
 
     # 检查是否至少有一个有效 HTML
     valid_count = sum(1 for h in htmls if h and len(h) > 1000)

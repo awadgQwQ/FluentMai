@@ -65,10 +65,8 @@ class SettingsInterface(QWidget):
             "1. 手机安装 Reqable (https://reqable.com/) 或 HttpCanary\n"
             "2. 安装 CA 证书 (App 内引导)\n"
             "3. 开始抓包 → 微信 → 舞萌公众号 → 我的记录 → 舞萌DX\n"
-            "4. 找到任意 maimai.wahlap.com 请求 → 复制 Cookie 头完整值\n"
-            "5. 粘贴到「成绩同步」页面的 Cookie 输入框\n\n"
-            "Cookie 格式: _t=abc123; userId=xyz789; friendCodeList=...\n"
-            "必要字段: _t (CSRF token), userId (用户标识)\n\n"
+            "4. 找到任意 maimai.wahlap.com 请求 → 长按 → 复制全部头部\n"
+            "5. 粘贴到「成绩同步」页面的输入框 (程序会自动清洗提取)\n\n"
             "Import Token 获取: https://www.diving-fish.com/maimaidx/prober/\n"
             "→ 登录 → 编辑个人资料 → 生成导入 Token"
         )
