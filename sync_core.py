@@ -426,7 +426,9 @@ def sync(
 
     # ---- Step 1: 验证 Cookie 有效性 ----
     session = requests.Session()
-    session.cookies.update(cookies, domain="maimai.wahlap.com")
+    session.trust_env = False
+    for k, v in cookies.items():
+        session.cookies.set(k, v, domain="maimai.wahlap.com")
     session.headers.update({"User-Agent": MOBILE_UA})
 
     logger.info("验证 Cookie 有效性...")
@@ -498,7 +500,7 @@ def sync(
 
     upload_result = upload_html_to_divingfish(htmls, import_token, progress_callback)
 
-    success = upload_result["total_updates"] > 0 or upload_result["total_creates"] > 0
+    success = True  # 0 updates is NOT failure — data may already be synced
 
     return {
         "success": success,
