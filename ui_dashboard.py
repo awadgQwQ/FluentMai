@@ -12,7 +12,7 @@ from PyQt6.QtCore import (
     Qt, QThread, pyqtSignal, pyqtProperty,
     QPropertyAnimation, QEasingCurve, QTimer, QPoint, QSize, QRectF,
 )
-from PyQt6.QtGui import QPixmap, QPainterPath, QRegion, QFontMetrics, QFont
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QPainterPath, QRegion, QFontMetrics, QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QScrollArea, QFrame, QGraphicsOpacityEffect,
@@ -29,9 +29,9 @@ from fetch_profile import query_player, load_b50_from_db, save_b50_to_db, init_b
 from cover_manager import cover_path, has_cover, BulkCoverWorker, download_cover_sync
 
 # ── colour & layout constants ─────────────────────────────────────
-BG_DARK      = "#0a0a14"
-CARD_BG      = "rgba(22, 22, 42, 0.75)"
-CARD_BORDER  = "rgba(0, 212, 255, 0.12)"
+BG_DARK      = "#1a1a2e"
+CARD_BG      = "#1e2030"
+CARD_BORDER  = "rgba(255,255,255,0.1)"
 ACCENT       = "#00d4ff"
 TEXT_PRIMARY = "#e0e0e0"
 TEXT_DIM     = "#808090"
@@ -55,13 +55,13 @@ FC_BADGE_COLORS = {
 }
 DIFF_COLORS = {
     0: "#22c55e",  # Basic — green
-    1: "#eab308",  # Advanced — yellow
+    1: "#f97316",  # Advanced — orange
     2: "#ef4444",  # Expert — red
-    3: "#a855f7",  # Master — purple
-    4: "#f8fafc",  # Re:Master — ice white
+    3: "#9333ea",  # Master — purple
+    4: "#f0abfc",  # Re:Master — pink-white
 }
 DIFF_LABELS = {
-    0: "Basic", 1: "Advanced", 2: "Expert", 3: "Master", 4: "Re:Master",
+    0: "BASIC", 1: "ADVANCED", 2: "EXPERT", 3: "MASTER", 4: "Re:MASTER",
 }
 
 # ── helpers ───────────────────────────────────────────────────────
@@ -81,29 +81,6 @@ def _hex_to_rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha:.0%})"
 
 
-def _badge_sheet(color: str) -> str:
-    return (
-        f"color: {color}; font-size: 11px; font-weight: bold; "
-        f"background: {_hex_to_rgba(color, 0.15)}; "
-        f"border: 1px solid {_hex_to_rgba(color, 0.30)}; "
-        "border-radius: 4px; padding: 2px 6px;"
-    )
-
-
-def _diff_tag_sheet(hex_color: str) -> str:
-    """Stylesheet for difficulty tag — dark text on light bg, white on dark bg."""
-    h = hex_color.lstrip("#")
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    # luminance approximation
-    lum = 0.299 * r + 0.587 * g + 0.114 * b
-    text_c = "#1e1e1e" if lum > 130 else "#ffffff"
-    return (
-        f"color: {text_c}; font-size: 10px; font-weight: bold; "
-        f"background: {_hex_to_rgba(hex_color, 0.25)}; "
-        f"border: 1px solid {_hex_to_rgba(hex_color, 0.45)}; "
-        "border-radius: 3px; padding: 2px 8px;"
-    )
-
 
 def _pill_badge(fg: str, bg_rgba: str, border_rgba: str) -> str:
     """Precision pill badge — fixed height, semi-transparent, no vertical stretch."""
@@ -118,6 +95,15 @@ def _type_pill(song_type: str) -> str:
     if song_type.upper() == "DX":
         return _pill_badge("#ff8c00", "rgba(255,140,0,0.14)", "rgba(255,140,0,0.30)")
     return _pill_badge("#3b82f6", "rgba(59,130,246,0.14)", "rgba(59,130,246,0.30)")
+
+
+def _diff_pill(hex_color: str) -> str:
+    """Difficulty pill — solid background, white text."""
+    return (
+        f"color: #ffffff; font-size: 10px; font-weight: bold; "
+        f"background: {hex_color}; "
+        "border-radius: 4px; padding: 0px 6px; "
+    )
 
 
 def _rate_pill(color_hex: str) -> str:
@@ -207,8 +193,8 @@ class SongCard(CardWidget):
         self._anims: list = []
 
         lv_idx = record.get("level_index", 3)
-        self._diff_color = DIFF_COLORS.get(lv_idx, ACCENT)
-        self._diff_label = DIFF_LABELS.get(lv_idx, "Master")
+        self._diff_color = DIFF_COLORS.get(lv_idx, DIFF_COLORS[3])
+        self._diff_label = DIFF_LABELS.get(lv_idx, "MASTER")
         ds = record.get("ds", 0)
         song_type = record.get("type", "")
         ach = record.get("achievements", 0)
@@ -235,29 +221,43 @@ class SongCard(CardWidget):
         self._opacity_effect.setOpacity(0.0)
         self.setGraphicsEffect(self._opacity_effect)
 
-        # ---- card style ----
+        # ---- card style (no left/right border — strips are widgets) ----
         self.setStyleSheet(f"""
             SongCard {{
-                {_card_sheet()}
-                border-left: 3px solid {self._diff_color};
-            }}
-            SongCard:hover {{
-                border-color: {ACCENT};
-                border-left: 3px solid {self._diff_color};
+                background: transparent;
+                border-radius: {CARD_RADIUS}px;
             }}
         """)
 
-        # ── root: HBox, symmetric vertical margins ──
+        # ── root HBox (spacing=0, strips are the gaps) ──
         self._root = QHBoxLayout(self)
-        self._root.setContentsMargins(14, 10, 8, 10)
-        self._root.setSpacing(8)
-        self._root.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self._root.setContentsMargins(0, 0, 0, 0)
+        self._root.setSpacing(0)
 
-        # ── COVER 56×56 (vertically centered by root) ──
+        # ── LEFT strip: 3px colour bar ──
+        left_strip = QWidget()
+        left_strip.setFixedWidth(3)
+        left_strip.setStyleSheet(
+            f"background: {self._diff_color}; "
+            f"border-top-left-radius: {CARD_RADIUS}px; "
+            f"border-bottom-left-radius: {CARD_RADIUS}px; "
+            "border: none;"
+        )
+        self._root.addWidget(left_strip)
+
+        # ── Inner body ──
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent; border: none;")
+        inner_lay = QHBoxLayout(inner)
+        inner_lay.setContentsMargins(7, 10, 7, 10)
+        inner_lay.setSpacing(8)
+        inner_lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        # ── COVER 56×56, border-radius 6px ──
         self._cover_box = QWidget()
         self._cover_box.setFixedSize(COVER_SIZE, COVER_SIZE)
         self._cover_box.setStyleSheet(
-            "background: rgba(0,0,0,0.4); border-radius: 8px; "
+            "background: rgba(0,0,0,0.4); border-radius: 6px; "
             "border: 1px solid rgba(255,255,255,0.08);"
         )
         cv_lay = QVBoxLayout(self._cover_box)
@@ -276,80 +276,77 @@ class SongCard(CardWidget):
             "color: #505060; font-size: 20px; background: transparent; border: none;"
         )
         cv_lay.addWidget(self._cover_placeholder)
-        self._root.addWidget(self._cover_box)
+        inner_lay.addWidget(self._cover_box)
 
-        # ── CENTER: 2 rows, no stretch, vertically centred ──
+        # ── CENTER: 3-row info area ──
         center = QVBoxLayout()
-        center.setSpacing(4)
+        center.setSpacing(2)
         center.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
-        # Row 1: title + diff pill + rank
-        r1 = QHBoxLayout()
-        r1.setSpacing(6)
-        r1.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-
+        # Row 1: Title (flex: 1; min-width: 0; overflow: hidden)
         title_text = record.get("title", "???")
         self._title_lbl = QLabel(title_text)
         self._title_lbl.setStyleSheet(
-            "color: #e0e0e0; font-size: 12px; font-weight: bold; background: transparent; border: none;"
+            "color: #e0e0e0; font-size: 13px; font-weight: 500; "
+            "background: transparent; border: none;"
         )
         self._title_lbl.setToolTip(title_text)
-        self._title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        r1.addWidget(self._title_lbl)
+        self._title_lbl.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._title_lbl.setMinimumWidth(0)
+        center.addWidget(self._title_lbl)
 
-        # Difficulty pill (coloured, back in Row 1)
-        dp = QLabel(self._diff_label)
-        dp.setStyleSheet(_diff_tag_sheet(self._diff_color))
-        dp.setFixedHeight(20)
-        dp.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
-        dp.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-        r1.addWidget(dp)
-
-        self._rank_lbl = QLabel(f"#{rank}")
-        self._rank_lbl.setStyleSheet(
-            f"color: {TEXT_DIM}; font-size: 10px; font-weight: bold; background: transparent; border: none;"
-        )
-        self._rank_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        r1.addWidget(self._rank_lbl)
-        center.addLayout(r1)
-
-        # Row 2: [type] ds  ---stretch---  ach%  badges
+        # Row 2: Difficulty pill + ds
         r2 = QHBoxLayout()
         r2.setSpacing(6)
-        r2.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        r2.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
 
-        tp = QLabel("DX" if song_type.upper() == "DX" else "SD")
-        tp.setStyleSheet(_type_pill(song_type))
-        tp.setFixedHeight(22)
-        tp.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
-        r2.addWidget(tp)
+        dp = QLabel(self._diff_label)
+        dp.setStyleSheet(_diff_pill(self._diff_color))
+        dp.setFixedHeight(18)
+        dp.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
+        r2.addWidget(dp)
 
         ds_lbl = QLabel(f"{ds:.1f}")
         ds_lbl.setStyleSheet(
-            "color: #a0a0ab; font-size: 12px; font-weight: bold; background: transparent; border: none;"
+            "color: #a0a0ab; font-size: 12px; background: transparent; border: none;"
         )
-        ds_lbl.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         r2.addWidget(ds_lbl)
-
         r2.addStretch(1)
+        center.addLayout(r2)
+
+        # Row 3: [DX/SD]  ach%  ---stretch---  badges
+        r3 = QHBoxLayout()
+        r3.setSpacing(6)
+        r3.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        tp = QLabel("DX" if song_type.upper() == "DX" else "SD")
+        tp.setStyleSheet(_type_pill(song_type))
+        tp.setFixedHeight(18)
+        tp.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
+        r3.addWidget(tp)
 
         self._ach_lbl = QLabel(f"{ach:.4f}%")
-        self._ach_lbl.setMinimumWidth(88)
-        self._ach_lbl.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self._ach_lbl.setMinimumWidth(85)
+        self._ach_lbl.setSizePolicy(
+            QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self._ach_lbl.setStyleSheet(
-            "color: #ffffff; font-size: 15px; font-weight: 900; "
-            "background: transparent; border: none; padding-top: 1px;"
+            "color: #ffffff; font-size: 15px; font-weight: 600; "
+            "background: transparent; border: none;"
         )
-        self._ach_lbl.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
-        r2.addWidget(self._ach_lbl)
+        self._ach_lbl.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        r3.addWidget(self._ach_lbl)
+
+        r3.addStretch(1)
 
         rate_text = _rate_display(rate)
         if rate_text:
             rb = QLabel(rate_text)
             rb.setStyleSheet(_rate_pill(ach_color))
-            rb.setFixedHeight(22)
+            rb.setFixedHeight(18)
             rb.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
-            r2.addWidget(rb)
+            r3.addWidget(rb)
 
         dx_score = record.get("dxScore", 0)
         star_count = _compute_stars(dx_score, lv_idx)
@@ -357,7 +354,7 @@ class SongCard(CardWidget):
             sl = QLabel("★" * star_count)
             sl.setStyleSheet(_star_pill())
             sl.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
-            r2.addWidget(sl)
+            r3.addWidget(sl)
 
         badge_info = _fc_badge(record.get("fc", ""), record.get("fs", ""))
         if badge_info:
@@ -368,43 +365,39 @@ class SongCard(CardWidget):
             bcolor = FC_BADGE_COLORS.get(color_key, TEXT_PRIMARY)
             fb = QLabel(blabel)
             fb.setStyleSheet(_rate_pill(bcolor))
-            fb.setFixedHeight(22)
+            fb.setFixedHeight(18)
             fb.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
-            r2.addWidget(fb)
+            r3.addWidget(fb)
 
-        center.addLayout(r2)
-        self._root.addLayout(center, 1)
+        center.addLayout(r3)
+        inner_lay.addLayout(center, 1)
 
-        # ── RA panel ──
-        ra_panel = QFrame()
-        ra_panel.setFixedWidth(RA_PANEL_W)
-        ra_panel.setStyleSheet(
-            "QFrame { "
-            f"background: rgba(0, 212, 255, 0.06); "
-            f"border: 1px solid {_hex_to_rgba(ACCENT, 0.20)}; "
-            "border-radius: 8px; "
-            "}"
-        )
-        ral = QVBoxLayout(ra_panel)
-        ral.setContentsMargins(0, 6, 0, 6)
-        ral.setSpacing(0)
-        ral.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
+        # ── Rating value (right, flex-shrink: 0) ──
         ra = record.get("ra", 0)
-        ra_num = QLabel(str(ra))
-        ra_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ra_num.setStyleSheet(
-            f"color: {ACCENT}; font-size: 20px; font-weight: 900; background: transparent; border: none;"
+        rating_lbl = QLabel(str(ra))
+        rating_lbl.setFixedWidth(54)
+        rating_lbl.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        rating_lbl.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        rating_lbl.setStyleSheet(
+            "color: #22d3ee; font-size: 22px; font-weight: bold; "
+            "background: transparent; border: none;"
         )
-        ral.addWidget(ra_num)
+        inner_lay.addWidget(rating_lbl)
 
-        ra_label = QLabel("RA")
-        ra_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ra_label.setStyleSheet(
-            f"color: {_hex_to_rgba(ACCENT, 0.53)}; font-size: 9px; font-weight: bold; background: transparent; border: none;"
+        self._root.addWidget(inner, 1)
+
+        # ── RIGHT strip: 3px colour bar ──
+        right_strip = QWidget()
+        right_strip.setFixedWidth(3)
+        right_strip.setStyleSheet(
+            f"background: {self._diff_color}; "
+            f"border-top-right-radius: {CARD_RADIUS}px; "
+            f"border-bottom-right-radius: {CARD_RADIUS}px; "
+            "border: none;"
         )
-        ral.addWidget(ra_label)
-        self._root.addWidget(ra_panel)
+        self._root.addWidget(right_strip)
 
         QTimer.singleShot(0, self._elide_title)
 
@@ -527,8 +520,18 @@ class SectionHeader(QWidget):
 
         self._layout.addStretch(1)
 
+        self._total_lbl = QLabel("Σ 0")
+        self._total_lbl.setStyleSheet(
+            f"color: {ACCENT}; font-size: 13px; font-weight: bold; "
+            "background: transparent; border: none;"
+        )
+        self._layout.addWidget(self._total_lbl)
+
     def set_count(self, count: int) -> None:
         self._count_lbl.setText(f"({count})")
+
+    def set_total(self, total: int) -> None:
+        self._total_lbl.setText(f"Σ {total}")
 
 
 # ── animated song grid ───────────────────────────────────────────
@@ -845,7 +848,9 @@ class DashboardInterface(QWidget):
             if sid and has_cover(sid):
                 cached_covers.add(sid)
 
+        b35_total = sum(r.get("ra", 0) for r in sd)
         self.b35_header.set_count(len(sd))
+        self.b35_header.set_total(b35_total)
         self.b35_grid.populate(sd, cached_covers)
         if from_cache:
             for card in self.b35_grid.cards():
@@ -854,7 +859,9 @@ class DashboardInterface(QWidget):
         else:
             self.b35_grid.animate_in(delay_ms=25)
 
+        b15_total = sum(r.get("ra", 0) for r in dx)
         self.b15_header.set_count(len(dx))
+        self.b15_header.set_total(b15_total)
         self.b15_grid.populate(dx, cached_covers)
         if from_cache:
             for card in self.b15_grid.cards():
