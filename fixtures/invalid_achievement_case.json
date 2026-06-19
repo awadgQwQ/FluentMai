@@ -1,0 +1,16 @@
+{
+  "source": "fixture.invalid_achievement",
+  "records": [
+    {
+      "title": "Invalid Rate",
+      "difficulty": "ADVANCED",
+      "level": "8",
+      "levelIndex": 1,
+      "achievement": 120.0000,
+      "dxScore": 1200,
+      "fc": null,
+      "fs": null
+    }
+  ]
+}
+

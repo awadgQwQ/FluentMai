@@ -1,0 +1,16 @@
+{
+  "source": "fixture.invalid_level_index",
+  "records": [
+    {
+      "title": "Wrong Lane",
+      "difficulty": "MASTER",
+      "level": "13",
+      "levelIndex": 7,
+      "achievement": 99.0000,
+      "dxScore": 2700,
+      "fc": null,
+      "fs": null
+    }
+  ]
+}
+

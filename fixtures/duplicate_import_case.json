@@ -1,0 +1,26 @@
+{
+  "source": "fixture.duplicate_case",
+  "records": [
+    {
+      "title": "PANDORA PARADOXXX",
+      "difficulty": "MASTER",
+      "level": "14+",
+      "levelIndex": 3,
+      "achievement": 100.5000,
+      "dxScore": 3120,
+      "fc": "FC",
+      "fs": "FS"
+    },
+    {
+      "title": "PANDORA PARADOXXX",
+      "difficulty": "MASTER",
+      "level": "14+",
+      "levelIndex": 3,
+      "achievement": 100.5000,
+      "dxScore": 3120,
+      "fc": "FC",
+      "fs": "FS"
+    }
+  ]
+}
+

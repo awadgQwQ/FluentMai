@@ -1,0 +1,16 @@
+{
+  "source": "fixture.blank_title",
+  "records": [
+    {
+      "title": "   ",
+      "difficulty": "EXPERT",
+      "level": "12+",
+      "levelIndex": 2,
+      "achievement": 98.1234,
+      "dxScore": 2500,
+      "fc": null,
+      "fs": null
+    }
+  ]
+}
+

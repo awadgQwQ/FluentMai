@@ -1,0 +1,36 @@
+{
+  "source": "fixture.valid_sample",
+  "records": [
+    {
+      "title": "PANDORA PARADOXXX",
+      "difficulty": "MASTER",
+      "level": "14+",
+      "levelIndex": 3,
+      "achievement": 100.5000,
+      "dxScore": 3120,
+      "fc": "FC",
+      "fs": "FS"
+    },
+    {
+      "title": "TEmPTaTiON",
+      "difficulty": "EXPERT",
+      "level": "13",
+      "levelIndex": 2,
+      "achievement": 99.8765,
+      "dxScore": 2870,
+      "fc": null,
+      "fs": "FS"
+    },
+    {
+      "title": "Luminaria",
+      "difficulty": "RE:MASTER",
+      "level": "13+",
+      "levelIndex": 4,
+      "achievement": 100.0000,
+      "dxScore": 3011,
+      "fc": "FC+",
+      "fs": null
+    }
+  ]
+}
+
