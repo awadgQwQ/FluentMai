@@ -17,9 +17,9 @@ class FakeImportPipeline(
         json: String,
         persistence: ImportPersistence,
     ): ImportResult {
-        val batchId = batchIdFactory()
-        val importedAt = clock()
         val parsed = runCatching { parser.parse(json) }.getOrElse {
+            val batchId = batchIdFactory()
+            val importedAt = clock()
             val result = ImportResult(
                 batchId = batchId,
                 inserted = 0,
@@ -31,6 +31,16 @@ class FakeImportPipeline(
             persistence.insertImportBatch(result.toBatch(source, importedAt, totalParsed = 0))
             return result
         }
+        return importParsedRecords(source, parsed, persistence)
+    }
+
+    suspend fun importParsedRecords(
+        source: String,
+        parsed: List<ParsedScoreRecord>,
+        persistence: ImportPersistence,
+    ): ImportResult {
+        val batchId = batchIdFactory()
+        val importedAt = clock()
 
         val outcomes = parsed.map(validator::validate)
         val validDrafts = outcomes.filterIsInstance<ValidationOutcome.Valid>().map { it.draft }
