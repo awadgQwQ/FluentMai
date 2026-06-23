@@ -57,6 +57,36 @@ class FakeImportPipelineTest {
         assertEquals(1, persistence.scores.size)
     }
 
+    @Test
+    fun importSummaryCountsMatchActualResults() = runTest {
+        val persistence = InMemoryImportPersistence()
+        val pipeline = deterministicPipeline()
+
+        val result = pipeline.importJson("counts", resourceText("valid_sample_import.json"), persistence)
+        val batch = persistence.batches.last()
+
+        assertEquals(3, batch.totalParsed)
+        assertEquals(result.inserted, batch.inserted)
+        assertEquals(result.skippedDuplicate, batch.skippedDuplicate)
+        assertEquals(result.quarantined, batch.quarantined)
+        assertEquals(3, batch.inserted)
+        assertEquals(0, batch.skippedDuplicate)
+        assertEquals(0, batch.quarantined)
+    }
+
+    @Test
+    fun blankTitleScoreNotWrittenToMainTable() = runTest {
+        val persistence = InMemoryImportPersistence()
+        val pipeline = deterministicPipeline()
+
+        pipeline.importJson("blank", resourceText("blank_title_quarantine_case.json"), persistence)
+
+        assertEquals(0, persistence.scores.size)
+        assertEquals(1, persistence.quarantineRecords.size)
+        val q = persistence.quarantineRecords.first()
+        assertTrue(q.reason.contains("blank_title"))
+    }
+
     private fun deterministicPipeline(): FakeImportPipeline {
         var nextBatch = 0
         return FakeImportPipeline(
