@@ -6,6 +6,7 @@ class PrivacyRedactor {
             .redactCredentialFields()
             .redactAuthUrls()
             .redactInputValues()
+            .redactHtmlBlocks()
             .redactHtml()
 
     private fun String.redactCredentialFields(): String =
@@ -16,6 +17,9 @@ class PrivacyRedactor {
 
     private fun String.redactInputValues(): String =
         replace(inputValueRegex, "[REDACTED_INPUT_VALUE]")
+
+    private fun String.redactHtmlBlocks(): String =
+        replace(htmlBlockRegex, "[REDACTED_HTML]")
 
     private fun String.redactHtml(): String =
         replace(htmlTagRegex, "[REDACTED_HTML]")
@@ -34,6 +38,11 @@ class PrivacyRedactor {
         private val inputValueRegex =
             Regex(
                 pattern = """(?i)input\s+value\s*=\s*("[^"]*"|'[^']*'|[^\s;,>]+)""",
+            )
+
+        private val htmlBlockRegex =
+            Regex(
+                pattern = """(?is)<\s*(html|body|form|script|head)\b[^>]*>.*?</\s*\1\s*>""",
             )
 
         private val htmlTagRegex =

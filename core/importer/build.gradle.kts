@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":core:model"))
     implementation("org.json:json:20240303")
     implementation("org.jsoup:jsoup:1.18.1")
+    testImplementation(project(":core:privacy"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

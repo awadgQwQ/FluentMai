@@ -32,5 +32,24 @@ class PrivacyRedactorTest {
         assertTrue(redacted.contains("[REDACTED_AUTH_URL]"))
         assertTrue(redacted.contains("[REDACTED_INPUT_VALUE]"))
     }
-}
 
+    @Test
+    fun removesLocalHookUrlsAndHtmlBodyText() {
+        val redacted = redactor.redact(
+            """
+            authUrl=http://127.0.0.1:8284/auth/maimai?random=123&token=local-secret
+            Set-Cookie: maimai_session=private-cookie
+            <html><body>private score page content</body></html>
+            """.trimIndent(),
+        )
+
+        assertFalse(redacted.contains("127.0.0.1"))
+        assertFalse(redacted.contains("random=123"))
+        assertFalse(redacted.contains("local-secret"))
+        assertFalse(redacted.contains("private-cookie"))
+        assertFalse(redacted.contains("private score page content"))
+        assertTrue(redacted.contains("[REDACTED_AUTH_URL]"))
+        assertTrue(redacted.contains("[REDACTED_SECRET]"))
+        assertTrue(redacted.contains("[REDACTED_HTML]"))
+    }
+}
