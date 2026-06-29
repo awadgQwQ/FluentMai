@@ -172,4 +172,69 @@ class RoomImportPersistenceTest {
         assertTrue(existingIds.isEmpty())
         assertEquals(1, database.scoreRecordDao().count())
     }
+
+    @Test
+    fun repositoryStoresOnlyLatestWahlapScorePages() = runTest {
+        val repository = FluentMaiRepository(database)
+        persistence.insertImportBatch(
+            ImportBatch(
+                id = "batch-old",
+                source = "wahlap:real-device",
+                importedAt = 1000L,
+                totalParsed = 1,
+                inserted = 1,
+                updated = 0,
+                skippedDuplicate = 0,
+                quarantined = 0,
+                rejected = 0,
+            ),
+        )
+        repository.replaceLatestWahlapScorePages(
+            batchId = "batch-old",
+            pages = listOf(
+                CachedWahlapScorePage(
+                    sourceBatchId = "",
+                    difficulty = Difficulty.EXPERT,
+                    html = "old-html",
+                    fetchedAt = 1001L,
+                ),
+            ),
+        )
+        persistence.insertImportBatch(
+            ImportBatch(
+                id = "batch-new",
+                source = "wahlap:real-device",
+                importedAt = 2000L,
+                totalParsed = 2,
+                inserted = 2,
+                updated = 0,
+                skippedDuplicate = 0,
+                quarantined = 0,
+                rejected = 0,
+            ),
+        )
+        repository.replaceLatestWahlapScorePages(
+            batchId = "batch-new",
+            pages = listOf(
+                CachedWahlapScorePage(
+                    sourceBatchId = "",
+                    difficulty = Difficulty.BASIC,
+                    html = "basic-html",
+                    fetchedAt = 2001L,
+                ),
+                CachedWahlapScorePage(
+                    sourceBatchId = "",
+                    difficulty = Difficulty.MASTER,
+                    html = "master-html",
+                    fetchedAt = 2002L,
+                ),
+            ),
+        )
+
+        val pages = repository.latestWahlapScorePages()
+
+        assertEquals(listOf(Difficulty.BASIC, Difficulty.MASTER), pages.map { it.difficulty })
+        assertEquals(listOf("basic-html", "master-html"), pages.map { it.html })
+        assertEquals(true, pages.all { it.sourceBatchId == "batch-new" })
+    }
 }

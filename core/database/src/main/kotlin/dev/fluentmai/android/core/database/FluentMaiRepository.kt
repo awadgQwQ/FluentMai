@@ -21,5 +21,19 @@ class FluentMaiRepository(
 
     suspend fun latestImportBatch(): ImportBatch? =
         database.importBatchDao().latest()?.toModel()
-}
 
+    suspend fun replaceLatestWahlapScorePages(
+        batchId: String,
+        pages: List<CachedWahlapScorePage>,
+    ) {
+        database.wahlapScorePageDao().deleteAll()
+        if (pages.isNotEmpty()) {
+            database.wahlapScorePageDao().insertAll(pages.map { it.toEntity(sourceBatchId = batchId) })
+        }
+    }
+
+    suspend fun latestWahlapScorePages(): List<CachedWahlapScorePage> {
+        val latestBatch = database.importBatchDao().latest() ?: return emptyList()
+        return database.wahlapScorePageDao().forBatch(latestBatch.id).map(WahlapScorePageEntity::toModel)
+    }
+}
