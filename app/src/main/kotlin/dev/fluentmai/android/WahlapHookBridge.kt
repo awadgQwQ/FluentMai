@@ -1,0 +1,75 @@
+package dev.fluentmai.android
+
+import android.util.Log
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import java.net.URI
+import java.util.concurrent.atomic.AtomicBoolean
+
+object WahlapHookBridge {
+    val capturedAuthUrls = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val status = MutableStateFlow("Capture not started")
+    val vpnRunning = MutableStateFlow(false)
+
+    private val importRunning = AtomicBoolean(false)
+
+    @JvmStatic
+    fun onAuthUrlCaptured(rawUrl: String) {
+        onAuthRequestCaptured(rawUrl, "")
+    }
+
+    @JvmStatic
+    fun onAuthRequestCaptured(rawUrl: String, rawRequestHeaders: String) {
+        val capturedUri = runCatching { URI(rawUrl.trim()) }.getOrNull()
+        val host = capturedUri?.host.orEmpty()
+        val path = capturedUri?.path.orEmpty()
+        val query = capturedUri?.rawQuery.orEmpty()
+        if (!host.equals("tgk-wcaime.wahlap.com", ignoreCase = true) ||
+            !path.contains("/wc_auth/oauth/callback/maimai-dx", ignoreCase = true) ||
+            !query.contains("code=", ignoreCase = true)
+        ) {
+            if (rawUrl.contains("open.weixin.qq.com", ignoreCase = true)) {
+                status.value = "Wechat authorize entry seen; waiting for Wahlap callback."
+            }
+            return
+        }
+        if (!importRunning.compareAndSet(false, true)) {
+            status.value = "Auth request already captured; importing."
+            return
+        }
+
+        val authUrl = rawUrl.trim()
+        Log.i(TAG, "Emitting captured Wahlap auth URL")
+        status.value = "Captured Wahlap auth request; importing."
+        if (!capturedAuthUrls.tryEmit(authUrl)) {
+            importRunning.set(false)
+            status.value = "Captured Wahlap auth request, but import queue was not ready."
+            Log.w(TAG, "Captured Wahlap auth URL could not be emitted")
+        }
+    }
+
+    @JvmStatic
+    fun isImporting(): Boolean = importRunning.get()
+
+    fun finishImport() {
+        importRunning.set(false)
+    }
+
+    @JvmStatic
+    fun setVpnRunning(running: Boolean) {
+        vpnRunning.value = running
+        status.value = if (running) {
+            "Capture started. Open the hook link in WeChat."
+        } else {
+            "Capture stopped."
+        }
+    }
+
+    @JvmStatic
+    fun setStatus(message: String) {
+        status.value = message
+    }
+
+    private const val TAG = "WahlapHookBridge"
+}
+
