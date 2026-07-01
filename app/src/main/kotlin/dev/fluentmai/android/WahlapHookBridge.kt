@@ -39,7 +39,8 @@ object WahlapHookBridge {
         }
 
         val authUrl = rawUrl.trim()
-        Log.i(TAG, "Emitting captured Wahlap auth URL")
+        val replayHeaderCount = WahlapKtorClient.storeAuthReplayHeaders(rawRequestHeaders)
+        Log.i(TAG, "Emitting captured Wahlap auth URL immediately replayHeaderCount=$replayHeaderCount")
         status.value = "Captured Wahlap auth request; importing."
         if (!capturedAuthUrls.tryEmit(authUrl)) {
             importRunning.set(false)
@@ -72,4 +73,3 @@ object WahlapHookBridge {
 
     private const val TAG = "WahlapHookBridge"
 }
-
