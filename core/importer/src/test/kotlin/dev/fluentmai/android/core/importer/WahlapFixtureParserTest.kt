@@ -1,6 +1,7 @@
 package dev.fluentmai.android.core.importer
 
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.SongType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -98,6 +99,55 @@ class WahlapFixtureParserTest {
     }
 
     @Test
+    fun parsesMixedDifficultyRatingTargetPage() {
+        val records = parser.parseMixedDifficultyPage(
+            """
+            <form action="https://maimai.wahlap.com/maimai-mobile/record/musicDetail/" method="GET">
+              <input type="hidden" name="idx" value="synthetic-inline-001">
+              <input type="hidden" name="diff" value="4">
+              <div class="music_name_block t_l f_13 break">SYNTHETIC INLINE RE MASTER</div>
+              <div class="music_score_block w_112 t_r f_l f_12">100.6215%</div>
+              <div class="music_lv_block">等级 13</div>
+              <img class="music_kind_icon" src="/maimai-mobile/img/music_dx.png">
+            </form>
+            <form action="https://maimai.wahlap.com/maimai-mobile/record/musicDetail/" method="GET">
+              <input type="hidden" name="idx" value="synthetic-inline-002">
+              <img src="/maimai-mobile/img/diff_expert.png">
+              <div class="music_name_block t_l f_13 break">SYNTHETIC INLINE EXPERT</div>
+              <div class="music_score_block w_150 t_l f_r f_12 p_r">100.5386%</div>
+              <div class="music_lv_block">EXPERT 专家 等级 12+</div>
+              <img class="music_kind_icon" src="/maimai-mobile/img/music_dx.png">
+            </form>
+            """.trimIndent(),
+        )
+
+        assertEquals(2, records.size)
+        assertEquals(Difficulty.RE_MASTER, records[0].difficulty)
+        assertEquals(4, records[0].levelIndex)
+        assertEquals("13", records[0].level)
+        assertEquals("SYNTHETIC INLINE EXPERT", records[1].title)
+        assertEquals(Difficulty.EXPERT, records[1].difficulty)
+        assertEquals(2, records[1].levelIndex)
+        assertEquals("12+", records[1].level)
+        assertEquals(SongType.DX, records[1].songType)
+        assertEquals(100.5386, records[1].achievement ?: 0.0, 0.0001)
+    }
+
+    @Test
+    fun parsesSyntheticRatingTargetSupplementalCards() {
+        val records = parser.parseMixedDifficultyPage(
+            resourceText("wahlap_rating_target_supplemental_synthetic_fixture.html"),
+        )
+
+        assertEquals(5, records.size)
+        assertSupplementalScore(records, "SYNTHETIC SONG ALPHA", Difficulty.EXPERT, 2, "12+", SongType.DX, 100.6000)
+        assertSupplementalScore(records, "SYNTHETIC SONG BETA", Difficulty.MASTER, 3, "13", SongType.STANDARD, 100.7500)
+        assertSupplementalScore(records, "SYNTHETIC SONG GAMMA", Difficulty.BASIC, 0, "4", SongType.DX, 100.5043)
+        assertSupplementalScore(records, "SYNTHETIC SONG DELTA", Difficulty.EXPERT, 2, "12", SongType.STANDARD, 100.5386)
+        assertSupplementalScore(records, "SYNTHETIC SONG EPSILON", Difficulty.MASTER, 3, "13+", SongType.DX, 100.9000)
+    }
+
+    @Test
     fun blankHtmlReturnsEmptyList() {
         val records = parser.parse("   ", Difficulty.MASTER)
         assertTrue(records.isEmpty())
@@ -105,4 +155,21 @@ class WahlapFixtureParserTest {
 
     private fun resourceText(name: String): String =
         requireNotNull(javaClass.classLoader?.getResource(name)).readText()
+
+    private fun assertSupplementalScore(
+        records: List<ParsedScoreRecord>,
+        title: String,
+        difficulty: Difficulty,
+        levelIndex: Int,
+        level: String,
+        songType: SongType,
+        achievement: Double,
+    ) {
+        val record = records.single { it.title == title }
+        assertEquals(difficulty, record.difficulty)
+        assertEquals(levelIndex, record.levelIndex)
+        assertEquals(level, record.level)
+        assertEquals(songType, record.songType)
+        assertEquals(achievement, record.achievement ?: 0.0, 0.0001)
+    }
 }
