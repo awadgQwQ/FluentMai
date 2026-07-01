@@ -1,10 +1,19 @@
 package dev.fluentmai.android
 
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -21,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,10 +39,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import dev.fluentmai.android.core.database.CachedWahlapScorePage
 import dev.fluentmai.android.core.database.FluentMaiDatabase
 import dev.fluentmai.android.core.database.FluentMaiRepository
 import dev.fluentmai.android.core.database.RoomImportPersistence
 import dev.fluentmai.android.core.importer.FakeImportPipeline
+import dev.fluentmai.android.core.importer.RealWahlapImportAdapter
+import dev.fluentmai.android.core.importer.RealWahlapImportResult
+import dev.fluentmai.android.core.importer.WahlapFixtureParser
+import dev.fluentmai.android.core.importer.WahlapScorePageProvider
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.ImportResult
@@ -44,11 +60,14 @@ import dev.fluentmai.android.feature.importflow.ImportScreen
 import dev.fluentmai.android.feature.quarantine.QuarantineScreen
 import dev.fluentmai.android.feature.scores.ScoresScreen
 import dev.fluentmai.android.feature.settings.SettingsScreen
+import dev.fluentmai.android.vpn.core.LocalVpnService
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "FluentMaiCatalog"
+private const val IMPORT_TAG = "FluentMaiImport"
 
 class MainActivity : ComponentActivity() {
     private val database by lazy { FluentMaiDatabase.create(this) }
@@ -72,8 +91,12 @@ class MainActivity : ComponentActivity() {
                 FluentMaiApp(
                     repository = repository,
                     runFakeImport = { runFakeImport() },
+                    runRealImport = { authUrl, afterLoginAttempt ->
+                        runRealImport(authUrl, afterLoginAttempt)
+                    },
                     loadLocalChartCatalog = { songCatalogStore.loadLocalCatalog() },
                     refreshChartCatalog = { songCatalogStore.refreshFromNetwork() },
+                    redactMessage = privacyRedactor::redact,
                 )
             }
         }
@@ -89,16 +112,57 @@ class MainActivity : ComponentActivity() {
             persistence = persistence,
         )
     }
+
+    private suspend fun runRealImport(
+        authUrl: String,
+        afterLoginAttempt: () -> Unit = {},
+    ): RealWahlapImportResult {
+        val fetchedPages = mutableListOf<CachedWahlapScorePage>()
+        val client = WahlapHttpScorePageClient(redactor = privacyRedactor)
+        try {
+            client.login(authUrl)
+        } finally {
+            afterLoginAttempt()
+        }
+
+        val realImportAdapter = RealWahlapImportAdapter(
+            parser = WahlapFixtureParser(),
+            sanitizeFailure = privacyRedactor::redact,
+        )
+        val result = realImportAdapter.importFetchedPages(
+            source = "wahlap:real-device",
+            pageProvider = WahlapScorePageProvider { difficulty ->
+                client.fetchScorePage(difficulty).also { html ->
+                    fetchedPages += CachedWahlapScorePage(
+                        sourceBatchId = "",
+                        difficulty = difficulty,
+                        html = html,
+                        fetchedAt = System.currentTimeMillis(),
+                    )
+                }
+            },
+            persistence = persistence,
+        )
+        if (result.failedDifficultyCount == 0 && result.importResult.batchId.isNotBlank()) {
+            repository.replaceLatestWahlapScorePages(result.importResult.batchId, fetchedPages)
+        }
+        return result
+    }
 }
 
 @Composable
 private fun FluentMaiApp(
     repository: FluentMaiRepository,
     runFakeImport: suspend () -> ImportResult,
+    runRealImport: suspend (String, () -> Unit) -> RealWahlapImportResult,
     loadLocalChartCatalog: suspend () -> SongCatalogSnapshot?,
     refreshChartCatalog: suspend () -> SongCatalogSnapshot,
+    redactMessage: (String) -> String,
 ) {
+    val context = LocalContext.current
     val startupStartedAtMs = remember { SystemClock.elapsedRealtime() }
+    val hookStatus by WahlapHookBridge.status.collectAsState()
+    val isHookRunning by WahlapHookBridge.vpnRunning.collectAsState()
     var selectedTab by remember { mutableStateOf(AppTab.Home) }
     var scoreCount by remember { mutableStateOf(0) }
     var scores by remember { mutableStateOf<List<ScoreRecord>>(emptyList()) }
@@ -108,8 +172,22 @@ private fun FluentMaiApp(
     var quarantineRecords by remember { mutableStateOf<List<QuarantineRecord>>(emptyList()) }
     var lastImport by remember { mutableStateOf<ImportBatch?>(null) }
     var lastResult by remember { mutableStateOf<ImportResult?>(null) }
+    var lastRealResult by remember { mutableStateOf<RealWahlapImportResult?>(null) }
+    var lastImportError by remember { mutableStateOf<String?>(null) }
+    var importStatus by remember { mutableStateOf(ImportRunStatus.Idle) }
+    var hookLink by remember { mutableStateOf(WahlapHookHttpService.HOOK_URL) }
+    var isPreparingHookLink by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            startVpnService(context)
+        } else {
+            WahlapHookBridge.setStatus("VPN permission was not granted; cannot capture Wahlap auth.")
+        }
+    }
 
     suspend fun refreshState() {
         scoreCount = repository.scoreCount()
@@ -171,9 +249,82 @@ private fun FluentMaiApp(
         }
     }
 
+    fun startCapturedRealImport(capturedAuthUrl: String) {
+        scope.launch {
+            isImporting = true
+            importStatus = ImportRunStatus.Importing
+            lastImportError = null
+            lastRealResult = null
+            val captureStopped = AtomicBoolean(false)
+            fun stopCaptureAfterLogin() {
+                if (captureStopped.compareAndSet(false, true)) {
+                    Log.i(IMPORT_TAG, "Stopping capture services after Wahlap login attempt")
+                    stopVpnService(context)
+                    WahlapHookHttpService.stop(context)
+                }
+            }
+            try {
+                WahlapHookBridge.setStatus("Captured Wahlap auth; replaying login and importing scores.")
+                Log.i(IMPORT_TAG, "Starting real Wahlap import from captured auth URL")
+                val result = withContext(Dispatchers.IO) {
+                    runRealImport(capturedAuthUrl, ::stopCaptureAfterLogin)
+                }
+                lastRealResult = result
+                importStatus = if (result.failedDifficultyCount == 0 && result.fetchedDifficultyCount > 0) {
+                    ImportRunStatus.Success
+                } else {
+                    ImportRunStatus.Failed
+                }
+                lastImportError = result.takeIf { it.failedDifficultyCount > 0 }
+                    ?.failures
+                    ?.joinToString("; ") { "${it.difficulty.name}: ${it.message}" }
+                refreshState()
+                Log.i(IMPORT_TAG, "Real Wahlap import completed: ${result.safeSummary()}")
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                lastImportError = safeMessage
+                importStatus = ImportRunStatus.Failed
+                Log.e(IMPORT_TAG, "Real Wahlap import failed: $safeMessage")
+            } finally {
+                stopCaptureAfterLogin()
+                isImporting = false
+                WahlapHookBridge.finishImport()
+            }
+        }
+    }
+
+    fun startHookCapture() {
+        WahlapHookHttpService.start(context)
+        val vpnPrepareIntent = VpnService.prepare(context)
+        if (vpnPrepareIntent != null) {
+            vpnPermissionLauncher.launch(vpnPrepareIntent)
+        } else {
+            startVpnService(context)
+        }
+    }
+
+    fun stopHookCapture() {
+        stopVpnService(context)
+        WahlapHookHttpService.stop(context)
+    }
+
+    fun copyHookUrl() {
+        isPreparingHookLink = true
+        hookLink = WahlapHookHttpService.HOOK_URL
+        copyTextToClipboard(context, "FluentMai Wahlap Hook", hookLink)
+        WahlapHookBridge.setStatus("Hook link copied. Open it in WeChat after starting capture.")
+        isPreparingHookLink = false
+    }
+
     LaunchedEffect(Unit) {
         refreshState()
         refreshChartRecords()
+    }
+
+    LaunchedEffect(Unit) {
+        WahlapHookBridge.capturedAuthUrls.collect { capturedAuthUrl ->
+            startCapturedRealImport(capturedAuthUrl)
+        }
     }
 
     Scaffold(
@@ -202,8 +353,19 @@ private fun FluentMaiApp(
 
             AppTab.Import -> ImportScreen(
                 lastResult = lastResult,
+                realImportSummary = lastRealResult?.summaryText(),
+                importStatus = importStatus.label,
+                errorMessage = lastImportError,
+                hookUrl = hookLink,
+                hookStatus = hookStatus,
+                isHookRunning = isHookRunning,
+                scoreCount = scoreCount,
                 isImporting = isImporting,
+                isPreparingHookLink = isPreparingHookLink,
                 onRunFakeImport = ::startImport,
+                onStartHookCapture = ::startHookCapture,
+                onStopHookCapture = ::stopHookCapture,
+                onCopyHookUrl = ::copyHookUrl,
                 modifier = modifier,
             )
 
@@ -246,4 +408,42 @@ private enum class AppTab(
     Scores("Scores", Icons.Filled.List),
     Quarantine("Quarantine", Icons.Filled.Warning),
     Settings("Settings", Icons.Filled.Settings),
+}
+
+private enum class ImportRunStatus(val label: String) {
+    Idle("Idle"),
+    Importing("Importing"),
+    Success("Success"),
+    Failed("Failed"),
+}
+
+private fun RealWahlapImportResult.safeSummary(): String =
+    "inserted=${importResult.inserted} updated=${importResult.updated} duplicate=${importResult.skippedDuplicate} " +
+        "quarantined=${importResult.quarantined} rejected=${importResult.rejected} parsed=$parsedRecordCount " +
+        "fetchedDifficulties=$fetchedDifficultyCount failedDifficulties=$failedDifficultyCount"
+
+private fun RealWahlapImportResult.summaryText(): String =
+    "Inserted ${importResult.inserted}, updated ${importResult.updated}, duplicate ${importResult.skippedDuplicate}, " +
+        "quarantined ${importResult.quarantined}, rejected ${importResult.rejected}; " +
+        "fetched $fetchedDifficultyCount difficulties, parsed $parsedRecordCount records."
+
+private fun startVpnService(context: Context) {
+    val intent = Intent(context, LocalVpnService::class.java)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        context.startForegroundService(intent)
+    } else {
+        context.startService(intent)
+    }
+}
+
+private fun stopVpnService(context: Context) {
+    context.startService(Intent(context, LocalVpnService::class.java).apply {
+        action = LocalVpnService.DISCONNECT_INTENT
+    })
+    WahlapHookBridge.setVpnRunning(false)
+}
+
+private fun copyTextToClipboard(context: Context, label: String, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
 }

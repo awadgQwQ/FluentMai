@@ -1,6 +1,8 @@
 package dev.fluentmai.android
 
 import android.util.Log
+import dev.fluentmai.android.core.importer.WahlapScorePageUrls
+import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
@@ -41,6 +43,22 @@ class WahlapHttpScorePageClient(
         }
     }
 
+    fun fetchScorePage(difficulty: Difficulty): String {
+        val response = request(
+            label = "score ${difficulty.name}",
+            rawUrl = WahlapScorePageUrls.scorePageUrl(difficulty, incremental = true),
+        )
+        if (response.statusCode !in 200..299) {
+            throw IOException("Wahlap score fetch failed: difficulty=${difficulty.name} status=${response.statusCode}")
+        }
+        if (response.contentType != null && !response.contentType.contains("html", ignoreCase = true)) {
+            throw IOException("Wahlap score fetch failed: difficulty=${difficulty.name} unexpected content type")
+        }
+        if (looksLikeAuthFailure(response.body) || !looksLikeScorePage(response.body)) {
+            throw IOException("Wahlap score fetch failed: difficulty=${difficulty.name} unexpected page")
+        }
+        return response.body
+    }
     private fun request(label: String, rawUrl: String): HttpResponse =
         try {
             runBlocking {
@@ -67,6 +85,10 @@ class WahlapHttpScorePageClient(
             normalized.contains("title_error")
     }
 
+    private fun looksLikeScorePage(html: String): Boolean =
+        html.contains("musicDetail", ignoreCase = true) &&
+            html.contains("music_name_block", ignoreCase = true) &&
+            html.contains("music_score_block", ignoreCase = true)
     private fun safeUrlSummary(url: String): String =
         runCatching {
             val uri = java.net.URI(url)
