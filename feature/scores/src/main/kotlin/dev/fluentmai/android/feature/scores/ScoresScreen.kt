@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.ScoreRecord
 import java.util.Locale
 
@@ -66,3 +67,6 @@ private fun ScoreRow(score: ScoreRecord) {
     }
 }
 
+
+internal fun ChartRecord?.isNewRatingBucket(latestChartVersion: Int): Boolean =
+    latestChartVersion > 0 && this?.chartVersion == latestChartVersion
