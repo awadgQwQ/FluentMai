@@ -1,6 +1,7 @@
 package dev.fluentmai.android.core.importer
 
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.SongType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,8 +16,20 @@ class ScoreRecordValidatorTest {
         assertTrue(outcome is ValidationOutcome.Valid)
         val draft = (outcome as ValidationOutcome.Valid).draft
         assertEquals("Valid Song", draft.title)
+        assertEquals(SongType.STANDARD, draft.songType)
         assertEquals(Difficulty.EXPERT, draft.difficulty)
         assertEquals(2, draft.levelIndex)
+    }
+
+    @Test
+    fun scoreIdIncludesSongType() {
+        val standard = validator.validate(validParsedRecord(songType = SongType.STANDARD))
+        val dx = validator.validate(validParsedRecord(songType = SongType.DX))
+
+        val standardDraft = (standard as ValidationOutcome.Valid).draft
+        val dxDraft = (dx as ValidationOutcome.Valid).draft
+        assertTrue(standardDraft.id != dxDraft.id)
+        assertEquals(SongType.DX, dxDraft.songType)
     }
 
     @Test
@@ -31,6 +44,15 @@ class ScoreRecordValidatorTest {
         val outcome = validator.validate(validParsedRecord(achievement = 101.5001))
 
         assertInvalidReason(outcome, "invalid_achievement")
+    }
+
+    @Test
+    fun acceptsMaimaiDxAchievementsAbove100Percent() {
+        val over100 = validator.validate(validParsedRecord(achievement = 100.7336))
+        val exact101 = validator.validate(validParsedRecord(achievement = 101.0))
+
+        assertTrue(over100 is ValidationOutcome.Valid)
+        assertTrue(exact101 is ValidationOutcome.Valid)
     }
 
     @Test
@@ -120,9 +142,11 @@ class ScoreRecordValidatorTest {
         title: String = "Valid Song",
         achievement: Double = 100.0000,
         levelIndex: Int = 2,
+        songType: SongType = SongType.STANDARD,
     ): ParsedScoreRecord =
         ParsedScoreRecord(
             title = title,
+            songType = songType,
             difficulty = Difficulty.fromLevelIndex(levelIndex),
             level = "12+",
             levelIndex = levelIndex,
@@ -133,4 +157,3 @@ class ScoreRecordValidatorTest {
             rawFingerprint = "fingerprint",
         )
 }
-

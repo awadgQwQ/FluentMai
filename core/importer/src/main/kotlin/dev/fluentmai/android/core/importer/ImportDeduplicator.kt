@@ -6,11 +6,8 @@ data class DeduplicationResult(
 )
 
 class ImportDeduplicator {
-    fun deduplicate(
-        drafts: List<ScoreRecordDraft>,
-        existingScoreIds: Set<String>,
-    ): DeduplicationResult {
-        val seen = existingScoreIds.toMutableSet()
+    fun deduplicate(drafts: List<ScoreRecordDraft>): DeduplicationResult {
+        val seen = mutableSetOf<String>()
         val accepted = mutableListOf<ScoreRecordDraft>()
         var skipped = 0
 
@@ -28,4 +25,3 @@ class ImportDeduplicator {
         )
     }
 }
-

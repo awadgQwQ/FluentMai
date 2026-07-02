@@ -46,8 +46,9 @@ class FakeImportPipeline(
         val validDrafts = outcomes.filterIsInstance<ValidationOutcome.Valid>().map { it.draft }
         val invalid = outcomes.filterIsInstance<ValidationOutcome.Invalid>()
         val existingIds = persistence.findExistingScoreIds(validDrafts.map { it.id }.toSet())
-        val deduped = deduplicator.deduplicate(validDrafts, existingIds)
+        val deduped = deduplicator.deduplicate(validDrafts)
         val scoreRecords = deduped.accepted.map { it.toScoreRecord(batchId, importedAt) }
+        val updated = deduped.accepted.count { it.id in existingIds }
         val quarantineRecords = invalid.mapIndexed { index, item ->
             QuarantineRecord(
                 id = "quarantine-$batchId-$index-${item.parsed.rawFingerprint.take(16)}",
@@ -61,8 +62,8 @@ class FakeImportPipeline(
 
         val result = ImportResult(
             batchId = batchId,
-            inserted = scoreRecords.size,
-            updated = 0,
+            inserted = scoreRecords.size - updated,
+            updated = updated,
             skippedDuplicate = deduped.skippedDuplicate,
             quarantined = quarantineRecords.size,
             rejected = 0,
@@ -88,4 +89,3 @@ class FakeImportPipeline(
             rejected = rejected,
         )
 }
-

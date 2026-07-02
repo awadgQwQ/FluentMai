@@ -3,6 +3,7 @@ package dev.fluentmai.android.core.importer
 import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongType
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -10,7 +11,7 @@ import org.junit.Test
 
 class FakeImportPipelineTest {
     @Test
-    fun importsValidFixtureAndSkipsRepeatDuplicates() = runTest {
+    fun importsValidFixtureAndUpdatesRepeatImport() = runTest {
         val persistence = InMemoryImportPersistence()
         val pipeline = deterministicPipeline()
         val fixture = resourceText("valid_sample_import.json")
@@ -22,7 +23,8 @@ class FakeImportPipelineTest {
         assertEquals(0, first.skippedDuplicate)
         assertEquals(0, first.quarantined)
         assertEquals(0, second.inserted)
-        assertEquals(3, second.skippedDuplicate)
+        assertEquals(3, second.updated)
+        assertEquals(0, second.skippedDuplicate)
         assertEquals(3, persistence.scores.size)
     }
 
@@ -55,6 +57,45 @@ class FakeImportPipelineTest {
         assertEquals(1, result.inserted)
         assertEquals(1, result.skippedDuplicate)
         assertEquals(1, persistence.scores.size)
+    }
+
+    @Test
+    fun sameTitleSameDifficultyDifferentSongTypesAreDistinctScores() = runTest {
+        val persistence = InMemoryImportPersistence()
+        val pipeline = deterministicPipeline()
+
+        val result = pipeline.importJson(
+            "song-type-distinct",
+            """
+            {
+              "records": [
+                {
+                  "title": "Shared Chart",
+                  "songType": "standard",
+                  "difficulty": "MASTER",
+                  "level": "13",
+                  "levelIndex": 3,
+                  "achievement": 99.0000,
+                  "dxScore": 2500
+                },
+                {
+                  "title": "Shared Chart",
+                  "songType": "dx",
+                  "difficulty": "MASTER",
+                  "level": "13",
+                  "levelIndex": 3,
+                  "achievement": 100.0000,
+                  "dxScore": 2600
+                }
+              ]
+            }
+            """.trimIndent(),
+            persistence,
+        )
+
+        assertEquals(2, result.inserted)
+        assertEquals(0, result.skippedDuplicate)
+        assertEquals(setOf(SongType.STANDARD, SongType.DX), persistence.scores.values.map { it.songType }.toSet())
     }
 
     @Test
@@ -111,7 +152,7 @@ private class InMemoryImportPersistence : ImportPersistence {
         scoreIds.filter(scores::containsKey).toSet()
 
     override suspend fun insertScoreRecords(records: List<ScoreRecord>) {
-        records.forEach { scores.putIfAbsent(it.id, it) }
+        records.forEach { scores[it.id] = it }
     }
 
     override suspend fun insertQuarantineRecords(records: List<QuarantineRecord>) {
@@ -122,4 +163,3 @@ private class InMemoryImportPersistence : ImportPersistence {
         batches += batch
     }
 }
-

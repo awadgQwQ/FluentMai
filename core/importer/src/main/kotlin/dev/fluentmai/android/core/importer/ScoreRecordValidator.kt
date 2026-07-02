@@ -2,10 +2,13 @@ package dev.fluentmai.android.core.importer
 
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongType
 
 data class ScoreRecordDraft(
     val id: String,
+    val songId: Int?,
     val title: String,
+    val songType: SongType,
     val difficulty: Difficulty,
     val level: String,
     val levelIndex: Int,
@@ -17,7 +20,9 @@ data class ScoreRecordDraft(
     fun toScoreRecord(sourceBatchId: String, importedAt: Long): ScoreRecord =
         ScoreRecord(
             id = id,
+            songId = songId,
             title = title,
+            songType = songType,
             difficulty = difficulty,
             level = level,
             levelIndex = levelIndex,
@@ -74,8 +79,14 @@ class ScoreRecordValidator {
 
         return ValidationOutcome.Valid(
             ScoreRecordDraft(
-                id = ScoreRecordIds.idFor(title = title, levelIndex = levelIndex!!),
+                id = ScoreRecordIds.idFor(
+                    title = title,
+                    levelIndex = levelIndex!!,
+                    songType = parsed.songType,
+                ),
+                songId = parsed.songId,
                 title = title,
+                songType = parsed.songType,
                 difficulty = difficulty!!,
                 level = level,
                 levelIndex = levelIndex,
@@ -89,7 +100,10 @@ class ScoreRecordValidator {
 }
 
 object ScoreRecordIds {
-    fun idFor(title: String, levelIndex: Int): String =
-        "score-" + Hashing.sha256("score|${title.trim().lowercase()}|$levelIndex")
+    fun idFor(
+        title: String,
+        levelIndex: Int,
+        songType: SongType = SongType.STANDARD,
+    ): String =
+        "score-" + Hashing.sha256("score|${title.trim().lowercase()}|${songType.exportName}|$levelIndex")
 }
-

@@ -5,6 +5,7 @@ import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.ImportResult
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongType
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -80,7 +81,8 @@ class WahlapImportPipelineTest {
         assertEquals(1, first.inserted)
         assertEquals(1, first.skippedDuplicate)
         assertEquals(0, second.inserted)
-        assertEquals(2, second.skippedDuplicate)
+        assertEquals(1, second.updated)
+        assertEquals(1, second.skippedDuplicate)
         assertEquals(1, persistence.scores.size)
     }
 
@@ -109,6 +111,148 @@ class WahlapImportPipelineTest {
         assertEquals(3, persistence.scores.size)
         assertTrue(persistence.scores.values.all { it.title.isNotBlank() })
         assertTrue(persistence.scores.values.all { it.levelIndex == 2 })
+    }
+
+    @Test
+    fun partialFetchUpsertsReturnedScoresAndPreservesUntouchedHistory() = runTest {
+        val persistence = InMemPersistence()
+        val pipeline = deterministicPipeline()
+        val historicalScores = (0 until 10).map { index ->
+            scoreRecord(
+                title = "History $index",
+                achievement = 90.0 + index,
+                dxScore = 1000 + index,
+            )
+        }
+        persistence.insertScoreRecords(historicalScores)
+
+        val parsed = (0 until 3).map { index ->
+            parsedScore(
+                title = "History $index",
+                achievement = 100.0 + index / 10.0,
+                dxScore = 2000 + index,
+            )
+        }
+        val result = pipeline.importParsedRecords("partial-fetch", parsed, persistence)
+
+        assertEquals(0, result.inserted)
+        assertEquals(3, result.updated)
+        assertEquals(10, persistence.scores.size)
+        (0 until 3).forEach { index ->
+            val updated = persistence.scores.getValue(ScoreRecordIds.idFor("History $index", 2, SongType.DX))
+            assertEquals(100.0 + index / 10.0, updated.achievement, 0.0001)
+            assertEquals(2000 + index, updated.dxScore)
+            assertEquals("batch-1", updated.sourceBatchId)
+        }
+        (3 until 10).forEach { index ->
+            val untouched = persistence.scores.getValue(ScoreRecordIds.idFor("History $index", 2, SongType.DX))
+            assertEquals(90.0 + index, untouched.achievement, 0.0001)
+            assertEquals(1000 + index, untouched.dxScore)
+            assertEquals("old-batch", untouched.sourceBatchId)
+        }
+    }
+
+    @Test
+    fun normalFetchUpdatesExistingScoresAndInsertsNewScores() = runTest {
+        val persistence = InMemPersistence()
+        val pipeline = deterministicPipeline()
+        val historicalScores = (0 until 3).map { index ->
+            scoreRecord(
+                title = "Normal $index",
+                achievement = 95.0 + index,
+                dxScore = 1500 + index,
+            )
+        }
+        persistence.insertScoreRecords(historicalScores)
+
+        val parsed = (0 until 5).map { index ->
+            parsedScore(
+                title = "Normal $index",
+                achievement = 99.0 + index / 10.0,
+                dxScore = 2500 + index,
+            )
+        }
+        val result = pipeline.importParsedRecords("normal-fetch", parsed, persistence)
+
+        assertEquals(2, result.inserted)
+        assertEquals(3, result.updated)
+        assertEquals(5, persistence.scores.size)
+        (0 until 5).forEach { index ->
+            val score = persistence.scores.getValue(ScoreRecordIds.idFor("Normal $index", 2, SongType.DX))
+            assertEquals(99.0 + index / 10.0, score.achievement, 0.0001)
+            assertEquals(2500 + index, score.dxScore)
+            assertEquals("batch-1", score.sourceBatchId)
+        }
+    }
+
+    @Test
+    fun dxScoresForSdDxSongsDoNotWriteStandardChartIds() = runTest {
+        val catalog = MaimaiSongCatalog.fromLxnsSongListJson(
+            """
+            {
+              "songs": [
+                {
+                  "id": 1051,
+                  "title": "Destr0yer",
+                  "difficulties": {
+                    "standard": [
+                      {"difficulty": 3, "level": "14"}
+                    ],
+                    "dx": [
+                      {"difficulty": 3, "level": "12+"}
+                    ]
+                  }
+                },
+                {
+                  "id": 1052,
+                  "title": "Oshama Scramble!",
+                  "difficulties": {
+                    "standard": [
+                      {"difficulty": 3, "level": "14"}
+                    ],
+                    "dx": [
+                      {"difficulty": 3, "level": "13+"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        val parser = WahlapFixtureParser(songCatalog = catalog)
+        val persistence = InMemPersistence()
+        val pipeline = deterministicPipeline()
+
+        val parsed = parser.parse(
+            """
+            <form action="https://maimai.wahlap.com/maimai-mobile/record/musicDetail/" method="GET">
+              <div class="music_lv_block">12+</div>
+              <div class="music_name_block">Destr0yer</div>
+              <div class="music_score_block w_112 t_r f_l f_12">99.6112%</div>
+              <div class="music_score_block w_190 t_r f_l f_12">1,627 / 1,806</div>
+              <img src="images/music_icon_fc.png" class="h_30 f_r">
+              <img src="images/music_icon_sync.png" class="h_30 f_r">
+            </form>
+            <form action="https://maimai.wahlap.com/maimai-mobile/record/musicDetail/" method="GET">
+              <div class="music_lv_block">13+</div>
+              <div class="music_name_block">Oshama Scramble!</div>
+              <div class="music_score_block w_112 t_r f_l f_12">98.9868%</div>
+              <div class="music_score_block w_190 t_r f_l f_12">1,401 / 1,662</div>
+              <img src="images/music_icon_sync.png" class="h_30 f_r">
+            </form>
+            """.trimIndent(),
+            Difficulty.MASTER,
+        )
+        val result = pipeline.importParsedRecords("p1-sd-dx-regression", parsed, persistence)
+
+        assertEquals(2, result.inserted)
+        assertEquals(0, result.quarantined)
+        val destr0yerDx = persistence.scores.getValue(ScoreRecordIds.idFor("Destr0yer", 3, SongType.DX))
+        val oshamaDx = persistence.scores.getValue(ScoreRecordIds.idFor("Oshama Scramble!", 3, SongType.DX))
+        assertEquals(99.6112, destr0yerDx.achievement, 0.0001)
+        assertEquals(98.9868, oshamaDx.achievement, 0.0001)
+        assertTrue(!persistence.scores.containsKey(ScoreRecordIds.idFor("Destr0yer", 3, SongType.STANDARD)))
+        assertTrue(!persistence.scores.containsKey(ScoreRecordIds.idFor("Oshama Scramble!", 3, SongType.STANDARD)))
     }
 
     @Test
@@ -181,6 +325,48 @@ class WahlapImportPipelineTest {
 
     private fun resourceText(name: String): String =
         requireNotNull(javaClass.classLoader?.getResource(name)).readText()
+
+    private fun scoreRecord(
+        title: String,
+        achievement: Double,
+        dxScore: Int,
+        songType: SongType = SongType.DX,
+        difficulty: Difficulty = Difficulty.EXPERT,
+    ): ScoreRecord =
+        ScoreRecord(
+            id = ScoreRecordIds.idFor(title, difficulty.levelIndex, songType),
+            title = title,
+            songType = songType,
+            difficulty = difficulty,
+            level = "12+",
+            levelIndex = difficulty.levelIndex,
+            achievement = achievement,
+            dxScore = dxScore,
+            fc = null,
+            fs = null,
+            sourceBatchId = "old-batch",
+            importedAt = 1L,
+        )
+
+    private fun parsedScore(
+        title: String,
+        achievement: Double,
+        dxScore: Int,
+        songType: SongType = SongType.DX,
+        difficulty: Difficulty = Difficulty.EXPERT,
+    ): ParsedScoreRecord =
+        ParsedScoreRecord(
+            title = title,
+            songType = songType,
+            difficulty = difficulty,
+            level = "12+",
+            levelIndex = difficulty.levelIndex,
+            achievement = achievement,
+            dxScore = dxScore,
+            fc = null,
+            fs = null,
+            rawFingerprint = "raw-$title-$achievement-$dxScore",
+        )
 }
 
 private class InMemPersistence : ImportPersistence {
@@ -192,7 +378,7 @@ private class InMemPersistence : ImportPersistence {
         scoreIds.filter(scores::containsKey).toSet()
 
     override suspend fun insertScoreRecords(records: List<ScoreRecord>) {
-        records.forEach { scores.putIfAbsent(it.id, it) }
+        records.forEach { scores[it.id] = it }
     }
 
     override suspend fun insertQuarantineRecords(records: List<QuarantineRecord>) {

@@ -1,6 +1,7 @@
 package dev.fluentmai.android.core.importer
 
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.SongType
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -12,6 +13,8 @@ class FixtureImportParser {
             val record = records.getJSONObject(index)
             ParsedScoreRecord(
                 title = record.nullableString("title"),
+                songId = record.nullableInt("songId"),
+                songType = SongType.fromWireName(record.nullableString("songType") ?: record.nullableString("type")),
                 difficulty = record.difficulty(),
                 level = record.nullableString("level"),
                 levelIndex = record.nullableInt("levelIndex"),
@@ -51,4 +54,3 @@ class FixtureImportParser {
     private fun JSONObject.optional(name: String): Any? =
         if (has(name) && !isNull(name)) opt(name) else null
 }
-

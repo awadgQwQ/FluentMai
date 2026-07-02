@@ -2,7 +2,9 @@ package dev.fluentmai.android.core.model
 
 data class ScoreRecord(
     val id: String,
+    val songId: Int? = null,
     val title: String,
+    val songType: SongType = SongType.STANDARD,
     val difficulty: Difficulty,
     val level: String,
     val levelIndex: Int,
@@ -13,4 +15,3 @@ data class ScoreRecord(
     val sourceBatchId: String,
     val importedAt: Long,
 )
-
