@@ -111,6 +111,7 @@ class MainActivity : ComponentActivity() {
                     loadLocalChartCatalog = { songCatalogStore.loadLocalCatalog() },
                     refreshChartCatalog = { songCatalogStore.refreshFromNetwork() },
                     uploadToDivingFish = { token, onProgress -> uploadToDivingFish(token, onProgress) },
+                    rebuildDivingFish = { token, onProgress -> rebuildDivingFish(token, onProgress) },
                     uploadToLxns = { token, onProgress -> uploadToLxns(token, onProgress) },
                     initialDivingFishToken = tokenPreferences.getString(PREF_DIVING_FISH_TOKEN, "").orEmpty(),
                     initialLxnsToken = tokenPreferences.getString(PREF_LXNS_TOKEN, "").orEmpty(),
@@ -186,6 +187,20 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private suspend fun rebuildDivingFish(
+        token: String,
+        onProgress: (MaimaiUploadProgress) -> Unit,
+    ): MaimaiUploadResult {
+        onProgress(MaimaiUploadProgress(0, 1, "Reading local scores"))
+        val currentScores = repository.scores()
+        return scoreUploader.rebuildDivingFishRecords(
+            importToken = token,
+            freshScores = currentScores,
+            recordsToRemove = emptyList(),
+            onProgress = onProgress,
+        )
+    }
+
     private suspend fun uploadToLxns(
         token: String,
         onProgress: (MaimaiUploadProgress) -> Unit,
@@ -218,6 +233,7 @@ private fun FluentMaiApp(
     loadLocalChartCatalog: suspend () -> SongCatalogSnapshot?,
     refreshChartCatalog: suspend () -> SongCatalogSnapshot,
     uploadToDivingFish: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
+    rebuildDivingFish: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
     uploadToLxns: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
     initialDivingFishToken: String,
     initialLxnsToken: String,
@@ -367,6 +383,47 @@ private fun FluentMaiApp(
                 uploadStatus = UploadRunStatus.Failed
                 uploadProgressText = "Upload failed: $safeMessage"
                 Log.e(UPLOAD_TAG, "Diving Fish upload failed: $safeMessage")
+            } finally {
+                isUploading = false
+            }
+        }
+    }
+
+    fun startDivingFishRebuild() {
+        val capturedToken = divingFishToken.trim()
+        if (capturedToken.isBlank()) {
+            uploadStatus = UploadRunStatus.Failed
+            lastUploadError = "Enter the Diving Fish upload token first."
+            return
+        }
+        if (scoreCount <= 0) {
+            uploadStatus = UploadRunStatus.Failed
+            lastUploadError = "Import scores before rebuilding Diving Fish records."
+            return
+        }
+        scope.launch {
+            isUploading = true
+            uploadStatus = UploadRunStatus.Uploading
+            lastUploadError = null
+            lastUploadResult = null
+            updateUploadProgress(MaimaiUploadProgress(0, 1, "Preparing guarded Diving Fish rebuild"))
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    rebuildDivingFish(capturedToken) { progress ->
+                        scope.launch { updateUploadProgress(progress) }
+                    }
+                }
+                lastUploadResult = result
+                uploadStatus = result.toUploadRunStatus()
+                uploadProgressText = result.message
+                uploadProgressFraction = if (result.success || result.hasCloudLocalDiff) 1f else uploadProgressFraction
+                Log.i(UPLOAD_TAG, "Diving Fish rebuild completed: ${result.safeSummary()}")
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                lastUploadError = safeMessage
+                uploadStatus = UploadRunStatus.Failed
+                uploadProgressText = "Rebuild failed: $safeMessage"
+                Log.e(UPLOAD_TAG, "Diving Fish rebuild failed: $safeMessage")
             } finally {
                 isUploading = false
             }
@@ -548,6 +605,7 @@ private fun FluentMaiApp(
                     persistLxnsToken(token)
                 },
                 onUploadDivingFish = ::startDivingFishUpload,
+                onRebuildDivingFish = ::startDivingFishRebuild,
                 onUploadLxns = ::startLxnsUpload,
                 modifier = modifier,
             )

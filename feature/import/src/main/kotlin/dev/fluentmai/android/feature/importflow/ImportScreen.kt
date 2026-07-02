@@ -10,17 +10,28 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.fluentmai.android.core.model.ImportResult
+
+const val DIVING_FISH_REBUILD_CONFIRMATION_PHRASE = "CONFIRM REBUILD DIVING FISH"
+
+fun isDivingFishRebuildConfirmationAccepted(input: String): Boolean =
+    input.trim() == DIVING_FISH_REBUILD_CONFIRMATION_PHRASE
 
 @Composable
 fun ImportScreen(
@@ -49,10 +60,62 @@ fun ImportScreen(
     onDivingFishTokenChanged: (String) -> Unit,
     onLxnsTokenChanged: (String) -> Unit,
     onUploadDivingFish: () -> Unit,
+    onRebuildDivingFish: () -> Unit,
     onUploadLxns: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isBusy = isImporting || isUploading
+    var showRebuildConfirmation by remember { mutableStateOf(false) }
+    var rebuildConfirmationInput by remember { mutableStateOf("") }
+
+    if (showRebuildConfirmation) {
+        AlertDialog(
+            onDismissRequest = {
+                showRebuildConfirmation = false
+                rebuildConfirmationInput = ""
+            },
+            title = { Text(text = "Rebuild Diving Fish records") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "This deletes existing Diving Fish cloud maimai records before uploading " +
+                            "the current local $scoreCount records. This is only for repairing cloud data; " +
+                            "use Upload to Diving Fish for normal sync.",
+                    )
+                    OutlinedTextField(
+                        value = rebuildConfirmationInput,
+                        onValueChange = { rebuildConfirmationInput = it },
+                        label = { Text(text = "Type: $DIVING_FISH_REBUILD_CONFIRMATION_PHRASE") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRebuildConfirmation = false
+                        rebuildConfirmationInput = ""
+                        onRebuildDivingFish()
+                    },
+                    enabled = isDivingFishRebuildConfirmationAccepted(rebuildConfirmationInput),
+                ) {
+                    Text(text = "Delete and rebuild")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showRebuildConfirmation = false
+                        rebuildConfirmationInput = ""
+                    },
+                ) {
+                    Text(text = "Cancel")
+                }
+            },
+        )
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -134,6 +197,16 @@ fun ImportScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(text = if (isUploading) "Uploading" else "Upload to Diving Fish")
+                }
+                OutlinedButton(
+                    onClick = {
+                        rebuildConfirmationInput = ""
+                        showRebuildConfirmation = true
+                    },
+                    enabled = !isBusy && scoreCount > 0 && divingFishToken.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text = "Rebuild Diving Fish records")
                 }
                 OutlinedTextField(
                     value = lxnsToken,
