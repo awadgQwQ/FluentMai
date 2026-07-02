@@ -27,6 +27,9 @@ fun interface MaimaiUploadTransport {
 
     fun get(request: MaimaiUploadHttpRequest): MaimaiUploadHttpResponse =
         execute(request.copy(method = "GET", body = ""))
+
+    fun delete(request: MaimaiUploadHttpRequest): MaimaiUploadHttpResponse =
+        execute(request.copy(method = "DELETE", body = ""))
 }
 
 class HttpUrlConnectionMaimaiUploadTransport(
@@ -67,7 +70,7 @@ class HttpUrlConnectionMaimaiUploadTransport(
         val bodyBytes = request.body.toByteArray(Charsets.UTF_8)
         val connection = (URL(request.url).openConnection() as HttpURLConnection).apply {
             requestMethod = request.method
-            doOutput = bodyBytes.isNotEmpty() && request.method != "GET"
+            doOutput = bodyBytes.isNotEmpty() && request.method != "GET" && request.method != "DELETE"
             connectTimeout = request.connectTimeoutMs ?: connectTimeoutMs
             readTimeout = request.readTimeoutMs ?: readTimeoutMs
             request.headers.forEach { (name, value) -> setRequestProperty(name, value) }

@@ -25,6 +25,7 @@ class MaimaiScoreUploaderTest {
         assertEquals(true, result.success)
         assertEquals(MaimaiUploadPlatform.DIVING_FISH, result.platform)
         assertEquals(listOf("POST", "GET"), transport.requests.map { it.method })
+        assertEquals(false, transport.requests.any { it.method == "DELETE" })
         val request = transport.requests[0]
         assertEquals("https://www.diving-fish.com/api/maimaidxprober/player/update_records", request.url)
         assertEquals("synthetic-fish-token", request.headers["Import-Token"])
@@ -142,6 +143,57 @@ class MaimaiScoreUploaderTest {
         assertEquals(true, diff.summaryText().contains("local-only=2"))
     }
 
+
+    @Test
+    fun divingFishRebuildDeletesAllThenUploadsFreshRecords() {
+        val freshScore = score(title = "Fresh Synthetic Song")
+        val transport = RecordingTransport(
+            MaimaiUploadHttpResponse(200, """{"message":1}"""),
+            MaimaiUploadHttpResponse(200, """{"updates":0,"creates":1}"""),
+            cloudRecords(listOf(freshScore)),
+        )
+        val uploader = MaimaiScoreUploader(transport = transport)
+
+        val result = uploader.rebuildDivingFishRecords(
+            importToken = "synthetic-fish-token",
+            freshScores = listOf(freshScore),
+            recordsToRemove = listOf(DivingFishRecordIdentifier("Old Synthetic Song", "SD", 3)),
+        )
+
+        assertEquals(true, result.success)
+        assertEquals(1, result.uploadedScoreCount)
+        assertEquals(listOf("DELETE", "POST", "GET"), transport.requests.map { it.method })
+        assertEquals(
+            "https://www.diving-fish.com/api/maimaidxprober/player/delete_records",
+            transport.requests[0].url,
+        )
+        assertEquals("synthetic-fish-token", transport.requests[0].headers["Import-Token"])
+        assertEquals(
+            "https://www.diving-fish.com/api/maimaidxprober/player/update_records",
+            transport.requests[1].url,
+        )
+        val uploaded = JSONArray(transport.requests[1].body).getJSONObject(0)
+        assertEquals("Fresh Synthetic Song", uploaded.getString("title"))
+        assertEquals(true, result.syncDiff?.isEmpty)
+    }
+
+    @Test
+    fun divingFishRebuildStopsWhenDeleteRecordsFails() {
+        val transport = RecordingTransport(MaimaiUploadHttpResponse(500, "temporary rebuild failure"))
+        val uploader = MaimaiScoreUploader(transport = transport)
+
+        val result = uploader.rebuildDivingFishRecords(
+            importToken = "synthetic-fish-token",
+            freshScores = listOf(score(title = "Fresh Synthetic Song")),
+            recordsToRemove = emptyList(),
+        )
+
+        assertEquals(false, result.success)
+        assertEquals(500, result.statusCode)
+        assertEquals(0, result.uploadedScoreCount)
+        assertEquals(listOf("DELETE"), transport.requests.map { it.method })
+        assertEquals(true, result.message.contains("delete_records failed"))
+    }
     private fun score(
         songId: Int? = 834,
         songType: SongType = SongType.STANDARD,

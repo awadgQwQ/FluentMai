@@ -126,6 +126,28 @@ class MaimaiScoreUploader(
         )
     }
 
+
+    fun rebuildDivingFishRecords(
+        importToken: String,
+        freshScores: List<ScoreRecord>,
+        recordsToRemove: List<DivingFishRecordIdentifier>,
+        onProgress: (MaimaiUploadProgress) -> Unit = {},
+    ): MaimaiUploadResult {
+        val token = requireToken(importToken, "Diving Fish import token")
+        val freshRecords = freshScores.toDivingFishJsonObjects()
+        onProgress(
+            MaimaiUploadProgress(
+                0,
+                (freshRecords.size + 1).coerceAtLeast(1),
+                "Starting guarded Diving Fish rebuild for ${freshRecords.size} records; candidates=${recordsToRemove.size}.",
+            ),
+        )
+        return replaceDivingFishRecordsWithFreshRecords(
+            token = token,
+            records = freshRecords,
+            onProgress = onProgress,
+        )
+    }
     fun uploadToLxns(
         userToken: String,
         scores: List<ScoreRecord>,
@@ -234,6 +256,93 @@ class MaimaiScoreUploader(
             ),
         )
 
+
+    private fun replaceDivingFishRecordsWithFreshRecords(
+        token: String,
+        records: List<JSONObject>,
+        onProgress: (MaimaiUploadProgress) -> Unit,
+    ): MaimaiUploadResult {
+        val deleteResponse = deleteDivingFishRecords(token)
+        if (deleteResponse.statusCode !in 200..299) {
+            return MaimaiUploadResult(
+                platform = MaimaiUploadPlatform.DIVING_FISH,
+                success = false,
+                statusCode = deleteResponse.statusCode,
+                uploadedScoreCount = 0,
+                message = httpMessage("Diving Fish delete_records failed", deleteResponse.statusCode, deleteResponse.body),
+            )
+        }
+
+        if (records.isEmpty()) {
+            val verifyResult = verifyDivingFishMatchesLocalJson(token, records, onProgress)
+                .getOrElse { error ->
+                    return MaimaiUploadResult(
+                        platform = MaimaiUploadPlatform.DIVING_FISH,
+                        success = false,
+                        statusCode = deleteResponse.statusCode,
+                        uploadedScoreCount = 0,
+                        message = "Diving Fish rebuild deleted records, but verification failed: ${safeThrowableMessage(error)}",
+                    )
+                }
+            return MaimaiUploadResult(
+                platform = MaimaiUploadPlatform.DIVING_FISH,
+                success = verifyResult.isEmpty,
+                statusCode = deleteResponse.statusCode,
+                uploadedScoreCount = 0,
+                message = "Diving Fish rebuilt 0 records after guarded delete_records. ${verifyResult.summaryText()}",
+                syncDiff = verifyResult,
+            )
+        }
+
+        val uploadResult = uploadDivingFishJsonRecordsAdaptively(token, records, onProgress)
+        if (!uploadResult.success) {
+            return MaimaiUploadResult(
+                platform = MaimaiUploadPlatform.DIVING_FISH,
+                success = false,
+                statusCode = uploadResult.statusCode,
+                uploadedScoreCount = uploadResult.uploadedCount,
+                message = "Diving Fish rebuild deleted records, but full upload failed. ${uploadResult.message}",
+                updatedCount = uploadResult.updatedCount,
+                createdCount = uploadResult.createdCount,
+            )
+        }
+
+        val verifyResult = verifyDivingFishMatchesLocalJson(token, records, onProgress)
+            .getOrElse { error ->
+                return MaimaiUploadResult(
+                    platform = MaimaiUploadPlatform.DIVING_FISH,
+                    success = false,
+                    statusCode = uploadResult.statusCode,
+                    uploadedScoreCount = uploadResult.uploadedCount,
+                    message = "Diving Fish rebuild uploaded ${uploadResult.uploadedCount} records, but verification failed: ${safeThrowableMessage(error)}",
+                    updatedCount = uploadResult.updatedCount,
+                    createdCount = uploadResult.createdCount,
+                )
+            }
+
+        return MaimaiUploadResult(
+            platform = MaimaiUploadPlatform.DIVING_FISH,
+            success = verifyResult.isEmpty,
+            statusCode = uploadResult.statusCode,
+            uploadedScoreCount = uploadResult.uploadedCount,
+            message = "Diving Fish rebuilt ${uploadResult.uploadedCount} records after guarded delete_records " +
+                "(updates=${uploadResult.updatedCount}, creates=${uploadResult.createdCount}). ${verifyResult.summaryText()}",
+            updatedCount = uploadResult.updatedCount,
+            createdCount = uploadResult.createdCount,
+            syncDiff = verifyResult,
+        )
+    }
+
+    private fun deleteDivingFishRecords(token: String): MaimaiUploadHttpResponse =
+        transport.delete(
+            MaimaiUploadHttpRequest(
+                url = DIVING_FISH_DELETE_RECORDS_URL,
+                headers = acceptJsonHeaders + ("Import-Token" to token),
+                body = "",
+                readTimeoutMs = UPDATE_READ_TIMEOUT_MS,
+                maxAttempts = UPDATE_MAX_ATTEMPTS,
+            ),
+        )
     private fun verifyDivingFishMatchesLocalJson(
         token: String,
         localRecords: List<JSONObject>,
@@ -349,6 +458,8 @@ class MaimaiScoreUploader(
             "https://www.diving-fish.com/api/maimaidxprober/player/update_records"
         private const val DIVING_FISH_RECORDS_URL =
             "https://www.diving-fish.com/api/maimaidxprober/player/records"
+        private const val DIVING_FISH_DELETE_RECORDS_URL =
+            "https://www.diving-fish.com/api/maimaidxprober/player/delete_records"
         private const val LXNS_UPDATE_RECORDS_URL =
             "https://maimai.lxns.net/api/v0/user/maimai/player/scores"
         private const val UPDATE_READ_TIMEOUT_MS = 20_000
