@@ -40,6 +40,7 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:importer"))
     implementation(project(":core:privacy"))
+    implementation(project(":core:upload"))
     implementation(project(":feature:home"))
     implementation(project(":feature:import"))
     implementation(project(":feature:scores"))
