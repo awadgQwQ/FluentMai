@@ -13,10 +13,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.fluentmai.android.core.model.ImportResult
 
@@ -29,15 +31,28 @@ fun ImportScreen(
     hookUrl: String,
     hookStatus: String,
     isHookRunning: Boolean,
+    divingFishToken: String,
+    lxnsToken: String,
+    uploadStatus: String,
+    uploadSummary: String?,
+    uploadErrorMessage: String?,
+    uploadProgressText: String?,
+    uploadProgressFraction: Float?,
     scoreCount: Int,
     isImporting: Boolean,
+    isUploading: Boolean,
     isPreparingHookLink: Boolean,
     onRunFakeImport: () -> Unit,
     onStartHookCapture: () -> Unit,
     onStopHookCapture: () -> Unit,
     onCopyHookUrl: () -> Unit,
+    onDivingFishTokenChanged: (String) -> Unit,
+    onLxnsTokenChanged: (String) -> Unit,
+    onUploadDivingFish: () -> Unit,
+    onUploadLxns: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isBusy = isImporting || isUploading
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -60,7 +75,7 @@ fun ImportScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = onStartHookCapture,
-                        enabled = !isImporting && !isHookRunning,
+                        enabled = !isBusy && !isHookRunning,
                     ) {
                         Text(text = "Start capture")
                     }
@@ -95,9 +110,58 @@ fun ImportScreen(
                 errorMessage?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
             }
         }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.small,
+            tonalElevation = 1.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(text = "Upload local scores", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = divingFishToken,
+                    onValueChange = onDivingFishTokenChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(text = "Diving Fish upload token") },
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                Button(
+                    onClick = onUploadDivingFish,
+                    enabled = !isBusy && scoreCount > 0 && divingFishToken.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text = if (isUploading) "Uploading" else "Upload to Diving Fish")
+                }
+                OutlinedTextField(
+                    value = lxnsToken,
+                    onValueChange = onLxnsTokenChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(text = "LXNS user token") },
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                OutlinedButton(
+                    onClick = onUploadLxns,
+                    enabled = !isBusy && scoreCount > 0 && lxnsToken.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text = "Upload to LXNS")
+                }
+                Text(text = uploadStatus)
+                uploadProgressText?.let { text ->
+                    val percent = uploadProgressFraction?.let { " (${(it * 100).toInt()}%)" }.orEmpty()
+                    Text(text = text + percent)
+                }
+                Text(text = uploadSummary ?: "Local scores ready to upload: $scoreCount")
+                uploadErrorMessage?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+            }
+        }
         Button(
             onClick = onRunFakeImport,
-            enabled = !isImporting,
+            enabled = !isBusy,
             modifier = Modifier.fillMaxWidth(),
         ) {
             androidx.compose.material3.Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)

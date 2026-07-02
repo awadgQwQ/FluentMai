@@ -45,6 +45,7 @@ import dev.fluentmai.android.core.database.FluentMaiDatabase
 import dev.fluentmai.android.core.database.FluentMaiRepository
 import dev.fluentmai.android.core.database.RoomImportPersistence
 import dev.fluentmai.android.core.importer.FakeImportPipeline
+import dev.fluentmai.android.core.importer.MaimaiSongCatalog
 import dev.fluentmai.android.core.importer.RealWahlapImportAdapter
 import dev.fluentmai.android.core.importer.RealWahlapImportResult
 import dev.fluentmai.android.core.importer.WahlapFixtureParser
@@ -55,6 +56,9 @@ import dev.fluentmai.android.core.model.ImportResult
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
+import dev.fluentmai.android.core.upload.MaimaiScoreUploader
+import dev.fluentmai.android.core.upload.MaimaiUploadProgress
+import dev.fluentmai.android.core.upload.MaimaiUploadResult
 import dev.fluentmai.android.feature.home.HomeScreen
 import dev.fluentmai.android.feature.importflow.ImportScreen
 import dev.fluentmai.android.feature.quarantine.QuarantineScreen
@@ -68,6 +72,10 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "FluentMaiCatalog"
 private const val IMPORT_TAG = "FluentMaiImport"
+private const val UPLOAD_TAG = "FluentMaiUpload"
+private const val TOKEN_PREFS_NAME = "fluentmai_tokens"
+private const val PREF_DIVING_FISH_TOKEN = "diving_fish_upload_token"
+private const val PREF_LXNS_TOKEN = "lxns_upload_token"
 
 class MainActivity : ComponentActivity() {
     private val database by lazy { FluentMaiDatabase.create(this) }
@@ -75,6 +83,9 @@ class MainActivity : ComponentActivity() {
     private val persistence by lazy { RoomImportPersistence(database) }
     private val importPipeline by lazy { FakeImportPipeline() }
     private val privacyRedactor by lazy { PrivacyRedactor() }
+    private val scoreUploader by lazy {
+        MaimaiScoreUploader(transport = AndroidNetworkMaimaiUploadTransport(this))
+    }
     private val songCatalogClient by lazy { LxnsMaimaiSongCatalogClient(privacyRedactor) }
     private val songCatalogStore by lazy {
         SongCatalogStore(
@@ -82,6 +93,9 @@ class MainActivity : ComponentActivity() {
             client = songCatalogClient,
             redactor = privacyRedactor,
         )
+    }
+    private val tokenPreferences by lazy {
+        getSharedPreferences(TOKEN_PREFS_NAME, Context.MODE_PRIVATE)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,10 +110,20 @@ class MainActivity : ComponentActivity() {
                     },
                     loadLocalChartCatalog = { songCatalogStore.loadLocalCatalog() },
                     refreshChartCatalog = { songCatalogStore.refreshFromNetwork() },
+                    uploadToDivingFish = { token, onProgress -> uploadToDivingFish(token, onProgress) },
+                    uploadToLxns = { token, onProgress -> uploadToLxns(token, onProgress) },
+                    initialDivingFishToken = tokenPreferences.getString(PREF_DIVING_FISH_TOKEN, "").orEmpty(),
+                    initialLxnsToken = tokenPreferences.getString(PREF_LXNS_TOKEN, "").orEmpty(),
+                    persistDivingFishToken = { token -> persistToken(PREF_DIVING_FISH_TOKEN, token) },
+                    persistLxnsToken = { token -> persistToken(PREF_LXNS_TOKEN, token) },
                     redactMessage = privacyRedactor::redact,
                 )
             }
         }
+    }
+
+    private fun persistToken(key: String, value: String) {
+        tokenPreferences.edit().putString(key, value).apply()
     }
 
     private suspend fun runFakeImport(): ImportResult {
@@ -148,6 +172,42 @@ class MainActivity : ComponentActivity() {
         }
         return result
     }
+
+    private suspend fun uploadToDivingFish(
+        token: String,
+        onProgress: (MaimaiUploadProgress) -> Unit,
+    ): MaimaiUploadResult {
+        onProgress(MaimaiUploadProgress(0, 1, "Reading local scores"))
+        val currentScores = repository.scores()
+        return scoreUploader.uploadToDivingFish(
+            importToken = token,
+            scores = currentScores,
+            onProgress = onProgress,
+        )
+    }
+
+    private suspend fun uploadToLxns(
+        token: String,
+        onProgress: (MaimaiUploadProgress) -> Unit,
+    ): MaimaiUploadResult {
+        onProgress(MaimaiUploadProgress(0, 1, "Reading local scores"))
+        val catalog = songCatalogStore.loadLocalCatalog()?.catalog ?: MaimaiSongCatalog.Empty
+        val currentScores = repository.scores().withCatalogSongIds(catalog)
+        return scoreUploader.uploadToLxns(
+            userToken = token,
+            scores = currentScores,
+            onProgress = onProgress,
+        )
+    }
+
+    private fun List<ScoreRecord>.withCatalogSongIds(catalog: MaimaiSongCatalog): List<ScoreRecord> =
+        map { score ->
+            if (score.songId != null) {
+                score
+            } else {
+                score.copy(songId = catalog.idForTitle(score.title))
+            }
+        }
 }
 
 @Composable
@@ -157,6 +217,12 @@ private fun FluentMaiApp(
     runRealImport: suspend (String, () -> Unit) -> RealWahlapImportResult,
     loadLocalChartCatalog: suspend () -> SongCatalogSnapshot?,
     refreshChartCatalog: suspend () -> SongCatalogSnapshot,
+    uploadToDivingFish: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
+    uploadToLxns: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
+    initialDivingFishToken: String,
+    initialLxnsToken: String,
+    persistDivingFishToken: (String) -> Unit,
+    persistLxnsToken: (String) -> Unit,
     redactMessage: (String) -> String,
 ) {
     val context = LocalContext.current
@@ -175,9 +241,17 @@ private fun FluentMaiApp(
     var lastRealResult by remember { mutableStateOf<RealWahlapImportResult?>(null) }
     var lastImportError by remember { mutableStateOf<String?>(null) }
     var importStatus by remember { mutableStateOf(ImportRunStatus.Idle) }
+    var uploadStatus by remember { mutableStateOf(UploadRunStatus.Idle) }
+    var divingFishToken by remember { mutableStateOf(initialDivingFishToken) }
+    var lxnsToken by remember { mutableStateOf(initialLxnsToken) }
+    var lastUploadResult by remember { mutableStateOf<MaimaiUploadResult?>(null) }
+    var lastUploadError by remember { mutableStateOf<String?>(null) }
+    var uploadProgressText by remember { mutableStateOf<String?>(null) }
+    var uploadProgressFraction by remember { mutableStateOf<Float?>(null) }
     var hookLink by remember { mutableStateOf(WahlapHookHttpService.HOOK_URL) }
     var isPreparingHookLink by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
+    var isUploading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -237,6 +311,15 @@ private fun FluentMaiApp(
         }
     }
 
+    fun updateUploadProgress(progress: MaimaiUploadProgress) {
+        uploadProgressText = progress.message
+        uploadProgressFraction = if (progress.completedSteps <= 0) {
+            null
+        } else {
+            progress.fraction.coerceIn(0f, 1f)
+        }
+    }
+
     fun startImport() {
         scope.launch {
             isImporting = true
@@ -245,6 +328,88 @@ private fun FluentMaiApp(
                 refreshState()
             } finally {
                 isImporting = false
+            }
+        }
+    }
+
+    fun startDivingFishUpload() {
+        val capturedToken = divingFishToken.trim()
+        if (capturedToken.isBlank()) {
+            uploadStatus = UploadRunStatus.Failed
+            lastUploadError = "Enter the Diving Fish upload token first."
+            return
+        }
+        if (scoreCount <= 0) {
+            uploadStatus = UploadRunStatus.Failed
+            lastUploadError = "Import scores before uploading."
+            return
+        }
+        scope.launch {
+            isUploading = true
+            uploadStatus = UploadRunStatus.Uploading
+            lastUploadError = null
+            lastUploadResult = null
+            updateUploadProgress(MaimaiUploadProgress(0, 1, "Preparing Diving Fish upload"))
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    uploadToDivingFish(capturedToken) { progress ->
+                        scope.launch { updateUploadProgress(progress) }
+                    }
+                }
+                lastUploadResult = result
+                uploadStatus = result.toUploadRunStatus()
+                uploadProgressText = result.message
+                uploadProgressFraction = if (result.success || result.hasCloudLocalDiff) 1f else uploadProgressFraction
+                Log.i(UPLOAD_TAG, "Diving Fish upload completed: ${result.safeSummary()}")
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                lastUploadError = safeMessage
+                uploadStatus = UploadRunStatus.Failed
+                uploadProgressText = "Upload failed: $safeMessage"
+                Log.e(UPLOAD_TAG, "Diving Fish upload failed: $safeMessage")
+            } finally {
+                isUploading = false
+            }
+        }
+    }
+
+    fun startLxnsUpload() {
+        val capturedToken = lxnsToken.trim()
+        if (capturedToken.isBlank()) {
+            uploadStatus = UploadRunStatus.Failed
+            lastUploadError = "Enter the LXNS user token first."
+            return
+        }
+        if (scoreCount <= 0) {
+            uploadStatus = UploadRunStatus.Failed
+            lastUploadError = "Import scores before uploading."
+            return
+        }
+        scope.launch {
+            isUploading = true
+            uploadStatus = UploadRunStatus.Uploading
+            lastUploadError = null
+            lastUploadResult = null
+            updateUploadProgress(MaimaiUploadProgress(0, 1, "Preparing LXNS upload"))
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    uploadToLxns(capturedToken) { progress ->
+                        scope.launch { updateUploadProgress(progress) }
+                    }
+                }
+                lastUploadResult = result
+                uploadStatus = if (result.success) UploadRunStatus.Success else UploadRunStatus.Failed
+                uploadProgressText = result.message
+                uploadProgressFraction = if (result.success) 1f else uploadProgressFraction
+                Log.i(UPLOAD_TAG, "LXNS upload completed: ${result.safeSummary()}")
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                lastUploadError = safeMessage
+                uploadStatus = UploadRunStatus.Failed
+                uploadProgressText = "Upload failed: $safeMessage"
+                Log.e(UPLOAD_TAG, "LXNS upload failed: $safeMessage")
+            } finally {
+                isUploading = false
             }
         }
     }
@@ -359,13 +524,31 @@ private fun FluentMaiApp(
                 hookUrl = hookLink,
                 hookStatus = hookStatus,
                 isHookRunning = isHookRunning,
+                divingFishToken = divingFishToken,
+                lxnsToken = lxnsToken,
+                uploadStatus = uploadStatus.label,
+                uploadSummary = lastUploadResult?.summaryText(),
+                uploadErrorMessage = lastUploadError,
+                uploadProgressText = uploadProgressText,
+                uploadProgressFraction = uploadProgressFraction,
                 scoreCount = scoreCount,
                 isImporting = isImporting,
+                isUploading = isUploading,
                 isPreparingHookLink = isPreparingHookLink,
                 onRunFakeImport = ::startImport,
                 onStartHookCapture = ::startHookCapture,
                 onStopHookCapture = ::stopHookCapture,
                 onCopyHookUrl = ::copyHookUrl,
+                onDivingFishTokenChanged = { token ->
+                    divingFishToken = token
+                    persistDivingFishToken(token)
+                },
+                onLxnsTokenChanged = { token ->
+                    lxnsToken = token
+                    persistLxnsToken(token)
+                },
+                onUploadDivingFish = ::startDivingFishUpload,
+                onUploadLxns = ::startLxnsUpload,
                 modifier = modifier,
             )
 
@@ -417,15 +600,48 @@ private enum class ImportRunStatus(val label: String) {
     Failed("Failed"),
 }
 
+private enum class UploadRunStatus(val label: String) {
+    Idle("Idle"),
+    Uploading("Uploading"),
+    Success("Success"),
+    CloudMismatch("Uploaded, verify mismatch"),
+    Failed("Failed"),
+}
+
+private fun ImportResult.safeSummary(): String =
+    "inserted=$inserted updated=$updated duplicate=$skippedDuplicate quarantined=$quarantined rejected=$rejected"
+
 private fun RealWahlapImportResult.safeSummary(): String =
-    "inserted=${importResult.inserted} updated=${importResult.updated} duplicate=${importResult.skippedDuplicate} " +
-        "quarantined=${importResult.quarantined} rejected=${importResult.rejected} parsed=$parsedRecordCount " +
+    "${importResult.safeSummary()} parsed=$parsedRecordCount " +
         "fetchedDifficulties=$fetchedDifficultyCount failedDifficulties=$failedDifficultyCount"
 
 private fun RealWahlapImportResult.summaryText(): String =
     "Inserted ${importResult.inserted}, updated ${importResult.updated}, duplicate ${importResult.skippedDuplicate}, " +
         "quarantined ${importResult.quarantined}, rejected ${importResult.rejected}; " +
         "fetched $fetchedDifficultyCount difficulties, parsed $parsedRecordCount records."
+
+private fun MaimaiUploadResult.safeSummary(): String =
+    "platform=${platform.name} success=$success status=$statusCode uploaded=$uploadedScoreCount " +
+        "updated=$updatedCount created=$createdCount " +
+        "cloudOnly=${syncDiff?.cloudOnly?.size ?: 0} localOnly=${syncDiff?.localOnly?.size ?: 0}"
+
+private fun MaimaiUploadResult.summaryText(): String =
+    "${platform.displayName}: ${displayStatusText()}, " +
+        "$uploadedScoreCount scores, HTTP $statusCode, $message"
+
+private fun MaimaiUploadResult.toUploadRunStatus(): UploadRunStatus =
+    when {
+        success -> UploadRunStatus.Success
+        hasCloudLocalDiff -> UploadRunStatus.CloudMismatch
+        else -> UploadRunStatus.Failed
+    }
+
+private fun MaimaiUploadResult.displayStatusText(): String =
+    when {
+        success -> "Success"
+        hasCloudLocalDiff -> "Uploaded, verify mismatch"
+        else -> "Failed"
+    }
 
 private fun startVpnService(context: Context) {
     val intent = Intent(context, LocalVpnService::class.java)
