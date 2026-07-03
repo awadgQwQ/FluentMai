@@ -50,6 +50,7 @@ import dev.fluentmai.android.core.importer.RealWahlapImportAdapter
 import dev.fluentmai.android.core.importer.RealWahlapImportResult
 import dev.fluentmai.android.core.importer.WahlapFixtureParser
 import dev.fluentmai.android.core.importer.WahlapScorePageProvider
+import dev.fluentmai.android.core.importer.WahlapSupplementalPageProvider
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.ImportResult
@@ -65,6 +66,7 @@ import dev.fluentmai.android.feature.quarantine.QuarantineScreen
 import dev.fluentmai.android.feature.scores.ScoresScreen
 import dev.fluentmai.android.feature.settings.SettingsScreen
 import dev.fluentmai.android.vpn.core.LocalVpnService
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -108,6 +110,7 @@ class MainActivity : ComponentActivity() {
                     runRealImport = { authUrl, afterLoginAttempt ->
                         runRealImport(authUrl, afterLoginAttempt)
                     },
+                    runCookieImport = { cookieInput -> runCookieImport(cookieInput) },
                     loadLocalChartCatalog = { songCatalogStore.loadLocalCatalog() },
                     refreshChartCatalog = { songCatalogStore.refreshFromNetwork() },
                     uploadToDivingFish = { token, onProgress -> uploadToDivingFish(token, onProgress) },
@@ -143,15 +146,34 @@ class MainActivity : ComponentActivity() {
         afterLoginAttempt: () -> Unit = {},
     ): RealWahlapImportResult {
         val fetchedPages = mutableListOf<CachedWahlapScorePage>()
-        val client = WahlapHttpScorePageClient(redactor = privacyRedactor)
+        val client = WahlapHttpScorePageClient(
+            redactor = privacyRedactor,
+            supplementalPageSink = { page ->
+                runCatching {
+                    val safeLabel = page.label.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    File(filesDir, "wahlap-supplemental-$safeLabel.html").writeText(page.html)
+                }.onFailure { error ->
+                    Log.w(IMPORT_TAG, "Unable to cache supplemental page ${page.label}: ${error::class.java.simpleName}")
+                }
+            },
+            debugPageSink = { label, html ->
+                runCatching {
+                    val safeLabel = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    File(filesDir, "wahlap-debug-$safeLabel.html").writeText(html)
+                }.onFailure { error ->
+                    Log.w(IMPORT_TAG, "Unable to cache Wahlap debug page $label: ${error::class.java.simpleName}")
+                }
+            },
+        )
         try {
             client.login(authUrl)
         } finally {
             afterLoginAttempt()
         }
 
+        val catalog = fetchSongCatalogOrEmpty()
         val realImportAdapter = RealWahlapImportAdapter(
-            parser = WahlapFixtureParser(),
+            parser = WahlapFixtureParser(songCatalog = catalog),
             sanitizeFailure = privacyRedactor::redact,
         )
         val result = realImportAdapter.importFetchedPages(
@@ -166,6 +188,9 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             },
+            supplementalPageProvider = WahlapSupplementalPageProvider {
+                client.fetchSupplementalScorePages()
+            },
             persistence = persistence,
         )
         if (result.failedDifficultyCount == 0 && result.importResult.batchId.isNotBlank()) {
@@ -173,6 +198,65 @@ class MainActivity : ComponentActivity() {
         }
         return result
     }
+
+    private suspend fun runCookieImport(cookieInput: String): RealWahlapImportResult {
+        val credentials = WahlapCookieImportCredentials.parse(cookieInput)
+        val catalog = fetchSongCatalogOrEmpty()
+        val fetchedPages = mutableListOf<CachedWahlapScorePage>()
+        val realImportAdapter = RealWahlapImportAdapter(
+            parser = WahlapFixtureParser(songCatalog = catalog),
+            sanitizeFailure = privacyRedactor::redact,
+        )
+        val client = WahlapManualCookieScorePageClient(
+            credentials = credentials,
+            redactor = privacyRedactor,
+            supplementalPageSink = { page ->
+                runCatching {
+                    val safeLabel = page.label.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    File(filesDir, "wahlap-manual-supplemental-$safeLabel.html").writeText(page.html)
+                }.onFailure { error ->
+                    Log.w(IMPORT_TAG, "Unable to cache manual supplemental page ${page.label}: ${error::class.java.simpleName}")
+                }
+            },
+            debugPageSink = { label, html ->
+                runCatching {
+                    val safeLabel = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    File(filesDir, "wahlap-manual-debug-$safeLabel.html").writeText(html)
+                }.onFailure { error ->
+                    Log.w(IMPORT_TAG, "Unable to cache manual Wahlap debug page $label: ${error::class.java.simpleName}")
+                }
+            },
+        )
+        return try {
+            client.validateLogin()
+            val result = realImportAdapter.importFetchedPages(
+                source = "wahlap:manual-cookie",
+                pageProvider = WahlapScorePageProvider { difficulty ->
+                    client.fetchScorePage(difficulty).also { html ->
+                        fetchedPages += CachedWahlapScorePage(
+                            sourceBatchId = "",
+                            difficulty = difficulty,
+                            html = html,
+                            fetchedAt = System.currentTimeMillis(),
+                        )
+                    }
+                },
+                supplementalPageProvider = WahlapSupplementalPageProvider {
+                    client.fetchSupplementalScorePages()
+                },
+                persistence = persistence,
+            )
+            if (result.failedDifficultyCount == 0 && result.importResult.batchId.isNotBlank()) {
+                repository.replaceLatestWahlapScorePages(result.importResult.batchId, fetchedPages)
+            }
+            result
+        } finally {
+            client.close()
+        }
+    }
+
+    private suspend fun fetchSongCatalogOrEmpty(): MaimaiSongCatalog =
+        songCatalogStore.loadLocalCatalog()?.catalog ?: MaimaiSongCatalog.Empty
 
     private suspend fun uploadToDivingFish(
         token: String,
@@ -230,6 +314,7 @@ private fun FluentMaiApp(
     repository: FluentMaiRepository,
     runFakeImport: suspend () -> ImportResult,
     runRealImport: suspend (String, () -> Unit) -> RealWahlapImportResult,
+    runCookieImport: suspend (String) -> RealWahlapImportResult,
     loadLocalChartCatalog: suspend () -> SongCatalogSnapshot?,
     refreshChartCatalog: suspend () -> SongCatalogSnapshot,
     uploadToDivingFish: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
@@ -242,6 +327,7 @@ private fun FluentMaiApp(
     redactMessage: (String) -> String,
 ) {
     val context = LocalContext.current
+    val authUrlRedactor = remember { PrivacyRedactor() }
     val startupStartedAtMs = remember { SystemClock.elapsedRealtime() }
     val hookStatus by WahlapHookBridge.status.collectAsState()
     val isHookRunning by WahlapHookBridge.vpnRunning.collectAsState()
@@ -265,6 +351,7 @@ private fun FluentMaiApp(
     var uploadProgressText by remember { mutableStateOf<String?>(null) }
     var uploadProgressFraction by remember { mutableStateOf<Float?>(null) }
     var hookLink by remember { mutableStateOf(WahlapHookHttpService.HOOK_URL) }
+    var wahlapCookieInput by remember { mutableStateOf("") }
     var isPreparingHookLink by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
@@ -471,6 +558,45 @@ private fun FluentMaiApp(
         }
     }
 
+    fun startManualCookieImport() {
+        val capturedInput = wahlapCookieInput.trim()
+        if (capturedInput.isBlank()) {
+            importStatus = ImportRunStatus.Failed
+            lastImportError = "Paste a Wahlap Cookie or Reqable request header first."
+            return
+        }
+        scope.launch {
+            isImporting = true
+            importStatus = ImportRunStatus.Importing
+            lastImportError = null
+            lastRealResult = null
+            try {
+                stopVpnService(context)
+                WahlapHookHttpService.stop(context)
+                WahlapHookBridge.finishImport()
+                WahlapHookBridge.setStatus("Importing scores with manual Wahlap Cookie credentials.")
+                val result = withContext(Dispatchers.IO) { runCookieImport(capturedInput) }
+                lastRealResult = result
+                importStatus = if (result.failedDifficultyCount == 0 && result.fetchedDifficultyCount > 0) {
+                    ImportRunStatus.Success
+                } else {
+                    ImportRunStatus.Failed
+                }
+                lastImportError = result.takeIf { it.failedDifficultyCount > 0 }
+                    ?.failures
+                    ?.joinToString("; ") { "${it.difficulty.name}: ${it.message}" }
+                refreshState()
+                Log.i(IMPORT_TAG, "Manual Wahlap import completed: ${result.safeSummary()}")
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                lastImportError = safeMessage
+                importStatus = ImportRunStatus.Failed
+                Log.e(IMPORT_TAG, "Manual Wahlap import failed: $safeMessage")
+            } finally {
+                isImporting = false
+            }
+        }
+    }
     fun startCapturedRealImport(capturedAuthUrl: String) {
         scope.launch {
             isImporting = true
@@ -517,6 +643,24 @@ private fun FluentMaiApp(
 
     fun startHookCapture() {
         WahlapHookHttpService.start(context)
+        scope.launch {
+            isPreparingHookLink = true
+            try {
+                val authUrl = withContext(Dispatchers.IO) {
+                    WahlapWechatAuthUrlClient(authUrlRedactor).maimaiDxAuthUrl()
+                }
+                hookLink = authUrl
+                copyTextToClipboard(context, "FluentMai WeChat auth link", authUrl)
+                WahlapHookBridge.setStatus("Wahlap WeChat auth link copied. Open it in WeChat; VPN capture will record the callback.")
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                hookLink = WahlapHookHttpService.HOOK_URL
+                copyTextToClipboard(context, "FluentMai fallback Hook link", WahlapHookHttpService.HOOK_URL)
+                WahlapHookBridge.setStatus("Auth link generation failed; copied fallback Hook link: $safeMessage")
+            } finally {
+                isPreparingHookLink = false
+            }
+        }
         val vpnPrepareIntent = VpnService.prepare(context)
         if (vpnPrepareIntent != null) {
             vpnPermissionLauncher.launch(vpnPrepareIntent)
@@ -592,10 +736,13 @@ private fun FluentMaiApp(
                 isImporting = isImporting,
                 isUploading = isUploading,
                 isPreparingHookLink = isPreparingHookLink,
+                wahlapCookieInput = wahlapCookieInput,
                 onRunFakeImport = ::startImport,
                 onStartHookCapture = ::startHookCapture,
                 onStopHookCapture = ::stopHookCapture,
                 onCopyHookUrl = ::copyHookUrl,
+                onWahlapCookieInputChanged = { value -> wahlapCookieInput = value },
+                onImportWahlapCookie = ::startManualCookieImport,
                 onDivingFishTokenChanged = { token ->
                     divingFishToken = token
                     persistDivingFishToken(token)
@@ -671,12 +818,14 @@ private fun ImportResult.safeSummary(): String =
 
 private fun RealWahlapImportResult.safeSummary(): String =
     "${importResult.safeSummary()} parsed=$parsedRecordCount " +
-        "fetchedDifficulties=$fetchedDifficultyCount failedDifficulties=$failedDifficultyCount"
+        "fetchedDifficulties=$fetchedDifficultyCount failedDifficulties=$failedDifficultyCount " +
+        "supplementalPages=$fetchedSupplementalPageCount supplementalParsed=$parsedSupplementalRecordCount"
 
 private fun RealWahlapImportResult.summaryText(): String =
     "Inserted ${importResult.inserted}, updated ${importResult.updated}, duplicate ${importResult.skippedDuplicate}, " +
         "quarantined ${importResult.quarantined}, rejected ${importResult.rejected}; " +
-        "fetched $fetchedDifficultyCount difficulties, parsed $parsedRecordCount records."
+        "fetched $fetchedDifficultyCount difficulties, parsed $parsedRecordCount records, " +
+        "supplemental pages $fetchedSupplementalPageCount, supplemental records $parsedSupplementalRecordCount."
 
 private fun MaimaiUploadResult.safeSummary(): String =
     "platform=${platform.name} success=$success status=$statusCode uploaded=$uploadedScoreCount " +

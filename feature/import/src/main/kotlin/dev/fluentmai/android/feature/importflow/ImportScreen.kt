@@ -53,10 +53,13 @@ fun ImportScreen(
     isImporting: Boolean,
     isUploading: Boolean,
     isPreparingHookLink: Boolean,
+    wahlapCookieInput: String,
     onRunFakeImport: () -> Unit,
     onStartHookCapture: () -> Unit,
     onStopHookCapture: () -> Unit,
     onCopyHookUrl: () -> Unit,
+    onWahlapCookieInputChanged: (String) -> Unit,
+    onImportWahlapCookie: () -> Unit,
     onDivingFishTokenChanged: (String) -> Unit,
     onLxnsTokenChanged: (String) -> Unit,
     onUploadDivingFish: () -> Unit,
@@ -155,6 +158,35 @@ fun ImportScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(text = if (isPreparingHookLink) "Preparing link" else "Copy hook link")
+                }
+            }
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.small,
+            tonalElevation = 1.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(text = "Wahlap Cookie import", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = wahlapCookieInput,
+                    onValueChange = onWahlapCookieInputChanged,
+                    enabled = !isBusy,
+                    label = { Text(text = "Cookie or Reqable request headers") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    minLines = 3,
+                    maxLines = 6,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = onImportWahlapCookie,
+                    enabled = !isBusy && wahlapCookieInput.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text = if (isImporting) "Importing" else "Import with Cookie")
                 }
             }
         }

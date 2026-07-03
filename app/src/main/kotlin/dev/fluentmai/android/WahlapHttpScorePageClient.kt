@@ -2,6 +2,7 @@ package dev.fluentmai.android
 
 import android.util.Log
 import dev.fluentmai.android.core.importer.WahlapScorePageUrls
+import dev.fluentmai.android.core.importer.WahlapSupplementalPage
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
 import io.ktor.client.statement.bodyAsText
@@ -11,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 
 class WahlapHttpScorePageClient(
     private val redactor: PrivacyRedactor,
+    private val supplementalPageSink: (WahlapSupplementalPage) -> Unit = {},
     private val debugPageSink: (label: String, html: String) -> Unit = { _, _ -> },
 ) {
     fun login(authUrl: String) {
@@ -59,6 +61,33 @@ class WahlapHttpScorePageClient(
         }
         return response.body
     }
+
+    fun fetchSupplementalScorePages(): List<WahlapSupplementalPage> =
+        SUPPLEMENTAL_SCORE_PAGE_URLS.mapNotNull { candidate ->
+            val response = runCatching {
+                request(label = candidate.label, rawUrl = candidate.url)
+            }.getOrElse { error ->
+                Log.w(TAG, "Supplemental ${candidate.label} request failed: ${redactor.redact(error.message ?: error::class.java.simpleName)}")
+                return@mapNotNull null
+            }
+            Log.i(
+                TAG,
+                "Supplemental ${candidate.label}: status=${response.statusCode} " +
+                    "type=${response.contentType.orEmpty()} bytes=${response.body.length} " +
+                    "scoreLike=${looksLikeScorePage(response.body)} " +
+                    "ratingLike=${looksLikeRatingTargetPage(response.body)}",
+            )
+            if (response.statusCode !in 200..299) return@mapNotNull null
+            if (response.contentType != null && !response.contentType.contains("html", ignoreCase = true)) {
+                return@mapNotNull null
+            }
+            if (looksLikeAuthFailure(response.body)) {
+                return@mapNotNull null
+            }
+            WahlapSupplementalPage(label = candidate.label, html = response.body)
+                .also(supplementalPageSink)
+        }
+
     private fun request(label: String, rawUrl: String): HttpResponse =
         try {
             runBlocking {
@@ -79,16 +108,26 @@ class WahlapHttpScorePageClient(
 
     private fun looksLikeAuthFailure(html: String): Boolean {
         val normalized = html.lowercase()
-        return normalized.contains("please open in wechat") ||
+        return normalized.contains("请在微信客户端打开链接") ||
+            normalized.contains("please open in wechat") ||
             normalized.contains("/wc_auth/oauth/authorize/") ||
             normalized.contains("open.weixin.qq.com/connect/oauth2/authorize") ||
-            normalized.contains("title_error")
+            html.contains("登录失败") ||
+            html.contains("错误码") ||
+            html.contains("title_error")
     }
 
     private fun looksLikeScorePage(html: String): Boolean =
         html.contains("musicDetail", ignoreCase = true) &&
             html.contains("music_name_block", ignoreCase = true) &&
             html.contains("music_score_block", ignoreCase = true)
+
+    private fun looksLikeRatingTargetPage(html: String): Boolean =
+        html.contains("DX评分对象曲目") ||
+            html.contains("DXè©åå¯¹è±¡æ²ç®") ||
+            html.contains("rating", ignoreCase = true) &&
+            html.contains("music", ignoreCase = true)
+
     private fun safeUrlSummary(url: String): String =
         runCatching {
             val uri = java.net.URI(url)
@@ -106,9 +145,36 @@ class WahlapHttpScorePageClient(
         val finalUrl: String,
     )
 
+    private data class SupplementalScorePageCandidate(
+        val label: String,
+        val url: String,
+    )
+
     private companion object {
         private const val TAG = "WahlapHttpScore"
         private const val HOME_URL = "https://maimai.wahlap.com/maimai-mobile/home/"
+        private val SUPPLEMENTAL_SCORE_PAGE_URLS = listOf(
+            SupplementalScorePageCandidate(
+                label = "rating-target-music",
+                url = "https://maimai.wahlap.com/maimai-mobile/home/ratingTargetMusic/",
+            ),
+            SupplementalScorePageCandidate(
+                label = "rating-recent",
+                url = "https://maimai.wahlap.com/maimai-mobile/home/playerData/ratingDetailRecent/",
+            ),
+            SupplementalScorePageCandidate(
+                label = "rating-best",
+                url = "https://maimai.wahlap.com/maimai-mobile/home/playerData/ratingDetailBest/",
+            ),
+            SupplementalScorePageCandidate(
+                label = "rating-detail",
+                url = "https://maimai.wahlap.com/maimai-mobile/home/playerData/ratingDetail/",
+            ),
+            SupplementalScorePageCandidate(
+                label = "rating-old",
+                url = "https://maimai.wahlap.com/maimai-mobile/home/playerData/ratingDetailOld/",
+            ),
+        )
     }
 }
 

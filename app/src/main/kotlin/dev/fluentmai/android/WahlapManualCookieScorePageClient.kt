@@ -240,10 +240,6 @@ class WahlapManualCookieScorePageClient(
         private const val CONNECT_TIMEOUT_MS = 30_000L
         private const val REQUEST_TIMEOUT_MS = 30_000L
         private const val HOME_URL = "https://maimai.wahlap.com/maimai-mobile/home/"
-        private const val WX_WINDOWS_UA =
-            "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/81.0.4044.138 Safari/537.36 NetType/WIFI " +
-                "MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x6307001e)"
         private val SUPPLEMENTAL_SCORE_PAGE_URLS = listOf(
             SupplementalScorePageCandidate(
                 label = "rating-target-music",
@@ -271,7 +267,7 @@ class WahlapManualCookieScorePageClient(
             linkedMapOf(
                 HttpHeaders.Connection to "keep-alive",
                 "Upgrade-Insecure-Requests" to "1",
-                HttpHeaders.UserAgent to WX_WINDOWS_UA,
+                HttpHeaders.UserAgent to WahlapKtorClient.WX_WINDOWS_UA,
                 HttpHeaders.Accept to "text/html,application/xhtml+xml,application/xml;q=0.9," +
                     "image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
                 "Sec-Fetch-Site" to "none",
@@ -289,8 +285,8 @@ class WahlapManualCookieScorePageClient(
                 normalized.contains("open.weixin.qq.com/connect/oauth2/authorize") ||
                 html.contains("\u767b\u5f55\u5931\u8d25") ||
                 html.contains("\u9519\u8bef\u7801") ||
-                html.contains("????") ||
-                html.contains("???") ||
+                html.contains("登录失败") ||
+                html.contains("错误码") ||
                 html.contains("title_error")
         }
 
@@ -300,4 +296,3 @@ class WahlapManualCookieScorePageClient(
                 html.contains("music_score_block", ignoreCase = true)
     }
 }
-

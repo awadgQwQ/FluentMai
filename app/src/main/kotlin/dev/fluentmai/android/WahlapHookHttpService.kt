@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import dev.fluentmai.android.core.privacy.PrivacyRedactor
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -24,6 +25,8 @@ import kotlin.concurrent.thread
 class WahlapHookHttpService : Service() {
     private var hookServer: SimpleHttpServer? = null
     private var redirectServer: SimpleHttpServer? = null
+    private val redactor = PrivacyRedactor()
+    private val authUrlClient by lazy { WahlapWechatAuthUrlClient(redactor) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -57,9 +60,9 @@ class WahlapHookHttpService : Service() {
             redirectStarted = redirectServer?.start() == true
         }
         if (hookStarted && redirectStarted) {
-            WahlapHookBridge.setStatus("Local Hook service is running. Open the hook link in WeChat.")
+            WahlapHookBridge.setStatus("本地 Hook 服务已启动，请复制链接到微信打开。")
         } else {
-            WahlapHookBridge.setStatus("Local Hook service failed to bind its ports.")
+            WahlapHookBridge.setStatus("本地 Hook 服务启动失败：端口未能监听。")
         }
     }
 
@@ -78,7 +81,7 @@ class WahlapHookHttpService : Service() {
                 "FluentMai Hook",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "Keeps the local Wahlap Hook service running"
+                description = "保持微信 Hook 本地服务运行"
             }
             manager.createNotificationChannel(channel)
         }
@@ -97,8 +100,8 @@ class WahlapHookHttpService : Service() {
         }
         val notification = builder
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle("FluentMai is waiting for Wahlap auth")
-            .setContentText("Local Hook service is running")
+            .setContentTitle("FluentMai 正在等待微信授权")
+            .setContentText("本地 Hook 链接已保持可访问")
             .setContentIntent(contentIntent)
             .setOngoing(true)
             .build()
@@ -109,19 +112,25 @@ class WahlapHookHttpService : Service() {
     private fun serveHook(path: String): HookHttpResponse =
         when {
             path == "/0" || path.startsWith("/auth/maimai") -> serveMaimaiAuthRedirect()
-            else -> HookHttpResponse.html(404, "FluentMai Hook link is invalid.")
+            else -> HookHttpResponse.html(404, "FluentMai Hook 链接无效。")
         }
 
     private fun serveMaimaiAuthRedirect(): HookHttpResponse {
         if (WahlapHookBridge.isImporting()) {
-            return HookHttpResponse.html(202, "Capture already started. Return to FluentMai and wait for import.")
+            return HookHttpResponse.html(202, "查分进程已经开始，请切回 FluentMai 等待导入完成。")
         }
-        WahlapHookBridge.setStatus("Hook link opened. Waiting for Wahlap OAuth callback traffic.")
-        return HookHttpResponse.html(202, "FluentMai Hook is waiting for the Wahlap OAuth callback.")
+        return runCatching {
+            WahlapHookBridge.setStatus("微信已打开 Hook 链接，正在生成舞萌授权跳转。")
+            HookHttpResponse.redirect(authUrlClient.maimaiDxAuthUrl())
+        }.getOrElse { error ->
+            val safeMessage = redactor.redact(error.message ?: error::class.java.simpleName)
+            Log.e(TAG, "Failed to build Wahlap auth URL: $safeMessage")
+            HookHttpResponse.html(500, "生成舞萌授权跳转失败：$safeMessage")
+        }
     }
 
     private fun serveCapturedPage(): HookHttpResponse =
-        HookHttpResponse.html(202, "Auth callback captured. Return to FluentMai and wait for import.")
+        HookHttpResponse.html(202, "登录信息已捕获，可以切回 FluentMai 等待成绩导入。")
 
     companion object {
         const val PORT = 8284
@@ -156,6 +165,18 @@ private data class HookHttpResponse(
     val body: String = "",
 ) {
     companion object {
+        fun redirect(location: String): HookHttpResponse =
+            HookHttpResponse(
+                statusCode = 302,
+                reason = "Found",
+                headers = mapOf(
+                    "Location" to location,
+                    "Cache-Control" to "no-cache, no-store, must-revalidate",
+                    "Pragma" to "no-cache",
+                    "Expires" to "0",
+                ),
+            )
+
         fun html(statusCode: Int, text: String): HookHttpResponse {
             val escapedText = text
                 .replace("&", "&amp;")
@@ -196,7 +217,7 @@ private class SimpleHttpServer(
             runServer()
         }
         if (!readyLatch.await(1500, TimeUnit.MILLISECONDS)) {
-            Log.w(TAG, "HTTP server bind timed out on port=$port")
+            Log.w("FluentMaiHookHttp", "HTTP server bind timed out on port=$port")
         }
         return ready
     }
@@ -232,8 +253,8 @@ private class SimpleHttpServer(
             readyLatch.countDown()
             ready = false
             if (!stopped) {
-                Log.e(TAG, "HTTP server failed on port=$port", error)
-                WahlapHookBridge.setStatus("Local Hook service failed: ${error::class.java.simpleName}")
+                Log.e("FluentMaiHookHttp", "HTTP server failed on port=$port", error)
+                WahlapHookBridge.setStatus("本地 Hook 服务启动失败：${error::class.java.simpleName}")
             }
         }
     }
@@ -254,13 +275,16 @@ private class SimpleHttpServer(
             }
         }.onFailure { error ->
             if (error !is java.net.SocketTimeoutException) {
-                Log.w(TAG, "Failed to read HTTP headers on port=$port", error)
+                Log.w("FluentMaiHookHttp", "Failed to read HTTP headers on port=$port", error)
             }
         }
         val path = requestLine.split(" ").getOrNull(1)?.substringBefore("?") ?: "/"
-        Log.i(TAG, "HTTP hit port=$port request=$requestLine host=${headers["host"]}")
+        Log.i(
+            "FluentMaiHookHttp",
+            "HTTP hit port=$port remote=${socket.remoteSocketAddress} request=$requestLine host=${headers["host"]}",
+        )
         if (port == WahlapHookHttpService.PORT) {
-            WahlapHookBridge.setStatus("Hook received request: $path")
+            WahlapHookBridge.setStatus("Hook 已收到请求：$path")
         }
         writeResponse(socket.getOutputStream(), handler(path))
     }
@@ -280,9 +304,4 @@ private class SimpleHttpServer(
         output.write(bodyBytes)
         output.flush()
     }
-
-    private companion object {
-        private const val TAG = "FluentMaiHookHttp"
-    }
 }
-
