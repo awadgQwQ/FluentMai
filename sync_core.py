@@ -28,6 +28,12 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("sync_core")
+try:
+    from fluentmai_core.privacy import install_redacting_filter, redactor
+
+    install_redacting_filter(logger)
+except Exception:
+    redactor = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -541,7 +547,7 @@ def sync(
         cookie_str = parsed["cookie_str"]
         extra_headers = parsed["headers"]
         if parsed["user_agent"]:
-            logger.info("使用真实 UA: %.60s...", parsed["user_agent"])
+            logger.info("使用真实 UA 指纹")
     else:
         logger.info("使用纯 Cookie 字符串模式")
 
@@ -559,8 +565,7 @@ def sync(
             "error": msg,
         }
 
-    logger.info("Cookie 解析成功: _t=%s..., userId=%s...",
-                cookies["_t"][:16], cookies["userId"][:16])
+    logger.info("Cookie 解析成功: 已包含必要字段")
 
     # ---- Step 1: 验证 Cookie 有效性 ----
     session = requests.Session()
@@ -769,8 +774,8 @@ if __name__ == "__main__":
             print(f"  ❌ [{diff}] {label} — {info.get('error', '未知错误')}")
 
     # ---- 执行 ----
-    print(f"Cookie 前缀: {COOKIE_STR[:60]}...")
-    print(f"Import Token: {IMPORT_TOKEN[:20]}...")
+    print("Cookie: [REDACTED_SECRET]")
+    print("Import Token: [REDACTED_SECRET]")
     print()
     print("🚀 开始同步...")
     print()

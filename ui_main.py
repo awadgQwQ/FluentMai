@@ -15,6 +15,8 @@ from qfluentwidgets import (FluentWindow, FluentIcon as FIF,
 from i18n import i18n
 from ui_home import HomeInterface
 from ui_dashboard import DashboardInterface
+from ui_scores import ScoresInterface
+from ui_library import LibraryInterface
 from ui_settings import SettingsInterface
 from ui_about import AboutInterface
 
@@ -103,11 +105,15 @@ class MainWindow(FluentWindow):
 
         self.home_interface = HomeInterface(self)
         self.dashboard_interface = DashboardInterface(self)
+        self.scores_interface = ScoresInterface(self)
+        self.library_interface = LibraryInterface(self)
         self.settings_interface = SettingsInterface(self)
         self.about_interface = AboutInterface(self)
 
         self.addSubInterface(self.home_interface, FIF.SYNC, i18n.tr("tab_home"))
         self.addSubInterface(self.dashboard_interface, FIF.ALBUM, i18n.tr("tab_dashboard"))
+        self.addSubInterface(self.scores_interface, FIF.SEARCH, "本地成绩")
+        self.addSubInterface(self.library_interface, FIF.ALBUM, "歌曲谱面")
         self.addSubInterface(
             self.settings_interface, FIF.SETTING, i18n.tr("tab_settings"),
             position=NavigationItemPosition.BOTTOM
