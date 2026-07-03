@@ -42,17 +42,23 @@ class HttpUrlConnectionMaimaiUploadTransport(
         var lastError: IOException? = null
         var lastResponse: MaimaiUploadHttpResponse? = null
         val attempts = request.maxAttempts ?: maxAttempts
+
         repeat(attempts.coerceAtLeast(1)) { attempt ->
             try {
-                val response = executeOnce(request)
-                if (!response.statusCode.shouldRetryHttpStatus() || attempt == attempts - 1) return response
+                val response = executePost(request)
+                if (!response.statusCode.shouldRetryHttpStatus() || attempt == attempts - 1) {
+                    return response
+                }
                 lastResponse = response
                 sleepBeforeRetry(attempt)
             } catch (error: IOException) {
                 lastError = error
-                if (attempt < attempts - 1) sleepBeforeRetry(attempt)
+                if (attempt < attempts - 1) {
+                    sleepBeforeRetry(attempt)
+                }
             }
         }
+
         lastResponse?.let { return it }
         throw lastError ?: IOException("Upload request failed.")
     }
@@ -66,7 +72,7 @@ class HttpUrlConnectionMaimaiUploadTransport(
         }
     }
 
-    private fun executeOnce(request: MaimaiUploadHttpRequest): MaimaiUploadHttpResponse {
+    private fun executePost(request: MaimaiUploadHttpRequest): MaimaiUploadHttpResponse {
         val bodyBytes = request.body.toByteArray(Charsets.UTF_8)
         val connection = (URL(request.url).openConnection() as HttpURLConnection).apply {
             requestMethod = request.method
@@ -74,10 +80,17 @@ class HttpUrlConnectionMaimaiUploadTransport(
             connectTimeout = request.connectTimeoutMs ?: connectTimeoutMs
             readTimeout = request.readTimeoutMs ?: readTimeoutMs
             request.headers.forEach { (name, value) -> setRequestProperty(name, value) }
-            if (doOutput) setFixedLengthStreamingMode(bodyBytes.size)
+            if (doOutput) {
+                setFixedLengthStreamingMode(bodyBytes.size)
+            }
         }
+
         return try {
-            if (connection.doOutput) connection.outputStream.use { it.write(bodyBytes) }
+            if (connection.doOutput) {
+                connection.outputStream.use { stream ->
+                    stream.write(bodyBytes)
+                }
+            }
             val status = connection.responseCode
             val stream = if (status >= 400) connection.errorStream else connection.inputStream
             MaimaiUploadHttpResponse(
