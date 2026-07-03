@@ -12,3 +12,50 @@ externalNativeBuild/
 *.keystore
 *.jks
 
+# FluentMai local secrets / auth captures
+current_auth_url*.txt
+*auth_url*.txt
+wahlap-debug-auth.html
+wahlap-debug-home.html
+/*cookie*.txt
+/*cookie*.log
+/*cookie*.html
+/*token*.txt
+/*token*.log
+/*token*.html
+/*Import-Token*
+
+# Device databases / backups
+*.db
+*.db-shm
+*.db-wal
+backups/
+tmp_device_db*/
+
+# Logs / diagnostics
+*.log
+*logcat*.txt
+adb_*.txt
+
+# APK / packaged artifacts
+*.apk
+*.aab
+
+# UI dumps / screenshots
+/wechat_*.png
+/fluentmai_*.png
+/window*.xml
+/verify_*.xml
+/*_window_*.xml
+
+# Private verification reports
+/p4_*
+/b50_*
+/rating_*
+/ap_bonus_*
+/*_diff*.tsv
+/*_dump*.tsv
+/*_verification*.tsv
+/*_verification*.md
+/*_report_*.md
+/*_summary_*.md

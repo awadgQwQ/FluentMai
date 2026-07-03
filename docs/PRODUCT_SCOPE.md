@@ -1,33 +1,35 @@
 # Product Scope
 
-FluentMai Android Phase 0 is a local-first maimai DX score manager foundation.
+FluentMai Android is currently focused on one workflow:
+
+1. Import maimai DX score data from the Wahlap WeChat account flow.
+2. Persist valid scores locally.
+3. Keep invalid or suspicious records out of the main score table.
+4. Export local scores into upload-ready payloads.
+5. Upload local scores to Diving Fish and LXNS.
 
 ## In Scope
 
-- Local score import architecture
-- Local Room database
-- Score browsing
-- Quarantine for abnormal records
-- Deduplication
-- Privacy-safe logs
-- Clear local data ownership
-- Fake fixture-based import for validation
+- Local Room database ownership.
+- Real Wahlap auth URL import.
+- Fixture-based import tests.
+- Score browsing.
+- Quarantine for abnormal records.
+- Deduplication across title, chart type, and difficulty.
+- Song type and song ID handling for upload compatibility.
+- Diving Fish and LXNS upload clients.
+- Privacy-safe logs and UI messages.
 
-## Out of Scope
+## Deferred
 
-- Real VPN
-- Real Hook
-- WebView login
-- Real Wahlap networking
-- WaterFish upload
-- LXNS upload
-- Cloud sync
-- Account login
-- AI recommendations
-- Community features
-- Multi-game support
+- Persistent account login.
+- Token storage.
+- Cloud sync.
+- AI recommendations.
+- Community features.
+- Multi-game support.
+- Best 50 image generation.
 
-## Product Base
+## Reference
 
-MaiproberPlus / MPP-Lab validated that Android local import is feasible. It is not the FluentMai Android product base. Phase 0 uses a clean reimplementation with fixtures and does not copy large MaiproberPlus modules.
-
+MaiproberPlus validated the local Wahlap import direction and remains a read-only reference. FluentMai Android should keep its own module boundaries, tests, and data model.

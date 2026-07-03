@@ -1,31 +1,27 @@
 # FluentMai Android
 
-FluentMai Android is the active MVP direction for FluentMai. It is a local-first maimai DX score manager built as a native Android Kotlin app.
+FluentMai Android is a local-first maimai DX score import and upload tool built as a native Android Kotlin app.
 
-The old desktop FluentMai PyQt prototype is legacy and should not be extended as the MVP. MaiproberPlus / MPP-Lab is only a technical validation reference for the Android local import route, not the product base for FluentMai Android.
+The current working goal is intentionally narrow:
 
-Phase 0 creates the product foundation:
+- Import maimai DX score data from the Wahlap WeChat account flow.
+- Store imported scores locally in Room.
+- Export local scores into upload-ready formats.
+- Upload imported scores to Diving Fish and LXNS.
 
-- Native Android Kotlin project
-- Jetpack Compose UI
-- Room local database
-- Domain modules for model, database, importer, and privacy
-- Feature modules for home, import, scores, quarantine, and settings
-- Fake local fixture import pipeline
-- Parser, validator, deduplicator, quarantine routing, and privacy redaction tests
+Other product ideas stay out of scope until local import, score export, and Diving Fish/LXNS upload are reliable.
 
-Phase 0 intentionally does not implement:
+## Current Capabilities
 
-- Real Hook, VPN, WebView login, or Wahlap networking
-- WaterFish upload
-- LXNS upload
-- Cloud sync
-- Account login
-- AI recommendations
-- Community features
-- Multi-game support
-
-The fake import reads JSON fixtures from `fixtures/` to validate the architecture. Valid records are written to Room, duplicate records are skipped, and invalid records are routed to quarantine without contaminating the score table.
+- Jetpack Compose Android app.
+- Room local score database.
+- Fixture import path for repeatable tests.
+- Real Wahlap auth URL import path.
+- Score validation, deduplication, and quarantine routing.
+- Privacy redaction for auth URLs, tokens, cookies, input values, and raw HTML.
+- Exporters for Diving Fish update records JSON and LXNS user score JSON.
+- Upload clients for Diving Fish and LXNS.
+- LXNS song catalog lookup for `songId` resolution.
 
 ## Build
 
@@ -41,7 +37,6 @@ The fake import reads JSON fixtures from `fixtures/` to validate the architectur
 - `fixtures/invalid_achievement_case.json`
 - `fixtures/invalid_level_index_case.json`
 
-## Repository Boundary
+## Reference Boundary
 
-`D:\Code\MaiproberPlus` must remain read-only for this task. If any code is copied from MaiproberPlus in a later phase, Apache-2.0 attribution, license, NOTICE requirements, and modification notes must be preserved.
-
+`D:\Code\MaiproberPlus` is a read-only technical reference for the local Wahlap import route and prober API behavior. FluentMai Android is a clean Kotlin implementation, not a direct fork of MaiproberPlus.
