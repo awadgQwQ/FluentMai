@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -63,6 +64,7 @@ import dev.fluentmai.android.core.upload.MaimaiUploadResult
 import dev.fluentmai.android.feature.home.HomeScreen
 import dev.fluentmai.android.feature.importflow.ImportScreen
 import dev.fluentmai.android.feature.quarantine.QuarantineScreen
+import dev.fluentmai.android.feature.scores.ChartQueryScreen
 import dev.fluentmai.android.feature.scores.ScoresScreen
 import dev.fluentmai.android.feature.settings.SettingsScreen
 import dev.fluentmai.android.vpn.core.LocalVpnService
@@ -759,6 +761,15 @@ private fun FluentMaiApp(
 
             AppTab.Scores -> ScoresScreen(
                 scores = scores,
+                charts = chartRecords,
+                modifier = modifier,
+            )
+
+            AppTab.Charts -> ChartQueryScreen(
+                charts = chartRecords,
+                scores = scores,
+                isLoading = isChartCatalogLoading,
+                onRefresh = ::refreshChartRecords,
                 modifier = modifier,
             )
 
@@ -794,6 +805,7 @@ private enum class AppTab(
     Home("Home", Icons.Filled.Home),
     Import("Import", Icons.Filled.PlayArrow),
     Scores("Scores", Icons.Filled.List),
+    Charts("Charts", Icons.Filled.Search),
     Quarantine("Quarantine", Icons.Filled.Warning),
     Settings("Settings", Icons.Filled.Settings),
 }
