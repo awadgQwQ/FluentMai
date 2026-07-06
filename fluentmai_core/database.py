@@ -162,6 +162,9 @@ def bootstrap_legacy_music_data(conn: sqlite3.Connection) -> None:
     ).fetchone()
     if not exists:
         return
+    has_catalog = conn.execute("SELECT 1 FROM charts LIMIT 1").fetchone()
+    if has_catalog:
+        return
 
     now = now_ts()
     rows = conn.execute(
@@ -207,91 +210,109 @@ def bootstrap_legacy_music_data(conn: sqlite3.Connection) -> None:
 def upsert_catalog(conn: sqlite3.Connection, songs: Sequence[Song], charts: Sequence[Chart]) -> None:
     now = now_ts()
     with conn:
-        for song in songs:
-            conn.execute(
-                """
-                INSERT INTO songs(
-                    song_id, title, title_norm, artist, genre, version, bpm, map, rights,
-                    locked, disabled, jacket_url, provider, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(song_id) DO UPDATE SET
-                    title=excluded.title,
-                    title_norm=excluded.title_norm,
-                    artist=COALESCE(NULLIF(excluded.artist, ''), songs.artist),
-                    genre=COALESCE(NULLIF(excluded.genre, ''), songs.genre),
-                    version=COALESCE(excluded.version, songs.version),
-                    bpm=COALESCE(excluded.bpm, songs.bpm),
-                    map=COALESCE(NULLIF(excluded.map, ''), songs.map),
-                    rights=COALESCE(NULLIF(excluded.rights, ''), songs.rights),
-                    locked=excluded.locked,
-                    disabled=excluded.disabled,
-                    jacket_url=COALESCE(NULLIF(excluded.jacket_url, ''), songs.jacket_url),
-                    provider=excluded.provider,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    song.song_id,
-                    song.title,
-                    normalize_title(song.title),
-                    song.artist,
-                    song.genre,
-                    song.version,
-                    song.bpm,
-                    song.map,
-                    song.rights,
-                    int(song.locked),
-                    int(song.disabled),
-                    song.jacket_url,
-                    song.provider,
-                    now,
-                ),
+        _upsert_catalog_rows(conn, songs, charts, now)
+
+
+def replace_catalog(conn: sqlite3.Connection, songs: Sequence[Song], charts: Sequence[Chart]) -> None:
+    """Replace song/chart metadata while preserving local score records."""
+    now = now_ts()
+    with conn:
+        conn.execute("DELETE FROM charts")
+        conn.execute("DELETE FROM songs")
+        _upsert_catalog_rows(conn, songs, charts, now)
+
+
+def _upsert_catalog_rows(
+    conn: sqlite3.Connection,
+    songs: Sequence[Song],
+    charts: Sequence[Chart],
+    now: float,
+) -> None:
+    for song in songs:
+        conn.execute(
+            """
+            INSERT INTO songs(
+                song_id, title, title_norm, artist, genre, version, bpm, map, rights,
+                locked, disabled, jacket_url, provider, updated_at
             )
-        for chart in charts:
-            conn.execute(
-                """
-                INSERT INTO charts(
-                    song_id, chart_type, difficulty_index, difficulty_name, level, level_value,
-                    charter, chart_version, chart_version_name, notes_total, notes_tap,
-                    notes_hold, notes_slide, notes_touch, notes_break, is_utage, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(song_id, chart_type, difficulty_index) DO UPDATE SET
-                    difficulty_name=excluded.difficulty_name,
-                    level=COALESCE(NULLIF(excluded.level, ''), charts.level),
-                    level_value=COALESCE(excluded.level_value, charts.level_value),
-                    charter=COALESCE(NULLIF(excluded.charter, ''), charts.charter),
-                    chart_version=COALESCE(excluded.chart_version, charts.chart_version),
-                    chart_version_name=COALESCE(NULLIF(excluded.chart_version_name, ''), charts.chart_version_name),
-                    notes_total=COALESCE(excluded.notes_total, charts.notes_total),
-                    notes_tap=COALESCE(excluded.notes_tap, charts.notes_tap),
-                    notes_hold=COALESCE(excluded.notes_hold, charts.notes_hold),
-                    notes_slide=COALESCE(excluded.notes_slide, charts.notes_slide),
-                    notes_touch=COALESCE(excluded.notes_touch, charts.notes_touch),
-                    notes_break=COALESCE(excluded.notes_break, charts.notes_break),
-                    is_utage=excluded.is_utage,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    chart.song_id,
-                    normalize_song_type(chart.chart_type),
-                    chart.difficulty_index,
-                    chart.difficulty_name,
-                    chart.level,
-                    chart.level_value,
-                    chart.charter,
-                    chart.chart_version,
-                    chart.chart_version_name,
-                    chart.notes_total,
-                    chart.notes_tap,
-                    chart.notes_hold,
-                    chart.notes_slide,
-                    chart.notes_touch,
-                    chart.notes_break,
-                    int(chart.is_utage),
-                    now,
-                ),
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(song_id) DO UPDATE SET
+                title=excluded.title,
+                title_norm=excluded.title_norm,
+                artist=COALESCE(NULLIF(excluded.artist, ''), songs.artist),
+                genre=COALESCE(NULLIF(excluded.genre, ''), songs.genre),
+                version=COALESCE(excluded.version, songs.version),
+                bpm=COALESCE(excluded.bpm, songs.bpm),
+                map=COALESCE(NULLIF(excluded.map, ''), songs.map),
+                rights=COALESCE(NULLIF(excluded.rights, ''), songs.rights),
+                locked=excluded.locked,
+                disabled=excluded.disabled,
+                jacket_url=COALESCE(NULLIF(excluded.jacket_url, ''), songs.jacket_url),
+                provider=excluded.provider,
+                updated_at=excluded.updated_at
+            """,
+            (
+                song.song_id,
+                song.title,
+                normalize_title(song.title),
+                song.artist,
+                song.genre,
+                song.version,
+                song.bpm,
+                song.map,
+                song.rights,
+                int(song.locked),
+                int(song.disabled),
+                song.jacket_url,
+                song.provider,
+                now,
+            ),
+        )
+    for chart in charts:
+        conn.execute(
+            """
+            INSERT INTO charts(
+                song_id, chart_type, difficulty_index, difficulty_name, level, level_value,
+                charter, chart_version, chart_version_name, notes_total, notes_tap,
+                notes_hold, notes_slide, notes_touch, notes_break, is_utage, updated_at
             )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(song_id, chart_type, difficulty_index) DO UPDATE SET
+                difficulty_name=excluded.difficulty_name,
+                level=COALESCE(NULLIF(excluded.level, ''), charts.level),
+                level_value=COALESCE(excluded.level_value, charts.level_value),
+                charter=COALESCE(NULLIF(excluded.charter, ''), charts.charter),
+                chart_version=COALESCE(excluded.chart_version, charts.chart_version),
+                chart_version_name=COALESCE(NULLIF(excluded.chart_version_name, ''), charts.chart_version_name),
+                notes_total=COALESCE(excluded.notes_total, charts.notes_total),
+                notes_tap=COALESCE(excluded.notes_tap, charts.notes_tap),
+                notes_hold=COALESCE(excluded.notes_hold, charts.notes_hold),
+                notes_slide=COALESCE(excluded.notes_slide, charts.notes_slide),
+                notes_touch=COALESCE(excluded.notes_touch, charts.notes_touch),
+                notes_break=COALESCE(excluded.notes_break, charts.notes_break),
+                is_utage=excluded.is_utage,
+                updated_at=excluded.updated_at
+            """,
+            (
+                chart.song_id,
+                normalize_song_type(chart.chart_type),
+                chart.difficulty_index,
+                chart.difficulty_name,
+                chart.level,
+                chart.level_value,
+                chart.charter,
+                chart.chart_version,
+                chart.chart_version_name,
+                chart.notes_total,
+                chart.notes_tap,
+                chart.notes_hold,
+                chart.notes_slide,
+                chart.notes_touch,
+                chart.notes_break,
+                int(chart.is_utage),
+                now,
+            ),
+        )
 
 
 def resolve_chart(

@@ -98,20 +98,20 @@ class ImportWorker(QThread):
         return {"success": True, "summary": summary.as_dict()}
 
     def _run_catalog(self) -> dict:
-        counts: list[str] = []
         errors: list[str] = []
         self.progress.emit("Refreshing LXNS song and chart catalog...")
         try:
-            counts.append(f"LXNS {sync_lxns_catalog(self.payload.get('db_path'))}")
+            count = sync_lxns_catalog(self.payload.get("db_path"))
+            message = f"LXNS {count}"
         except Exception as exc:
             errors.append(f"LXNS: {redactor.redact(exc)}")
-        self.progress.emit("Refreshing Diving-Fish fallback catalog...")
-        try:
-            counts.append(f"Diving-Fish {sync_diving_fish_catalog(self.payload.get('db_path'))}")
-        except Exception as exc:
-            errors.append(f"Diving-Fish: {redactor.redact(exc)}")
-        if not counts:
-            raise RuntimeError("; ".join(errors) or "Catalog refresh failed.")
+            self.progress.emit("Refreshing Diving-Fish fallback catalog...")
+            try:
+                count = sync_diving_fish_catalog(self.payload.get("db_path"), replace=True)
+                message = f"Diving-Fish fallback {count}"
+            except Exception as fallback_exc:
+                errors.append(f"Diving-Fish: {redactor.redact(fallback_exc)}")
+                raise RuntimeError("; ".join(errors) or "Catalog refresh failed.")
         return {
             "success": True,
             "summary": {
@@ -122,7 +122,7 @@ class ImportWorker(QThread):
                 "quarantined": 0,
                 "rejected": 0,
                 "failed": len(errors),
-                "message": "; ".join(counts + errors),
+                "message": "; ".join([message] + errors),
             },
         }
 

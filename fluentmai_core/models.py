@@ -24,7 +24,7 @@ def normalize_title(title: str | None) -> str:
 
 def normalize_song_type(value: str | None) -> str:
     raw = (value or "").strip().lower()
-    if raw in {"utage", "宴", "宴会场"}:
+    if raw in {"utage", "宴", "宴会場", "宴会场"}:
         return "UTAGE"
     if raw in {"dx", "deluxe"}:
         return "DX"

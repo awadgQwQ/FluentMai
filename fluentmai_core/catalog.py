@@ -62,6 +62,7 @@ def parse_diving_fish_music_data(payload: list[dict[str, Any]]) -> tuple[list[So
 def parse_lxns_song_list(payload: dict[str, Any]) -> tuple[list[Song], list[Chart]]:
     root = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     raw_songs = root.get("songs") if isinstance(root, dict) else []
+    version_names = _parse_lxns_version_names(root.get("versions") if isinstance(root, dict) else None)
     songs: list[Song] = []
     charts: list[Chart] = []
     for item in raw_songs or []:
@@ -90,17 +91,22 @@ def parse_lxns_song_list(payload: dict[str, Any]) -> tuple[list[Song], list[Char
         difficulties = item.get("difficulties") or {}
         for chart_type, key in (("SD", "standard"), ("DX", "dx")):
             for chart_item in difficulties.get(key) or []:
-                chart = _parse_lxns_chart(song_id, chart_type, chart_item, is_utage=False)
+                chart = _parse_lxns_chart(song_id, chart_type, chart_item, version_names, is_utage=False)
                 if chart:
                     charts.append(chart)
         for chart_item in difficulties.get("utage") or []:
-            chart = _parse_lxns_chart(song_id, "UTAGE", chart_item, is_utage=True)
+            chart = _parse_lxns_chart(song_id, "UTAGE", chart_item, version_names, is_utage=True)
             if chart:
                 charts.append(chart)
     return songs, charts
 
 
-def sync_diving_fish_catalog(db_path: str | None = None, session: requests.Session | None = None) -> int:
+def sync_diving_fish_catalog(
+    db_path: str | None = None,
+    session: requests.Session | None = None,
+    *,
+    replace: bool = False,
+) -> int:
     session = session or requests.Session()
     response = session.get(DIVING_FISH_MUSIC_DATA_URL, timeout=HTTP_TIMEOUT)
     response.raise_for_status()
@@ -111,7 +117,10 @@ def sync_diving_fish_catalog(db_path: str | None = None, session: requests.Sessi
     conn = database.connect(db_path)
     try:
         database.insert_cache(conn, "diving-fish", "music_data", json.dumps(payload, ensure_ascii=False))
-        database.upsert_catalog(conn, songs, charts)
+        if replace:
+            database.replace_catalog(conn, songs, charts)
+        else:
+            database.upsert_catalog(conn, songs, charts)
         return len(songs)
     finally:
         conn.close()
@@ -132,7 +141,7 @@ def sync_lxns_catalog(db_path: str | None = None, session: requests.Session | No
     conn = database.connect(db_path)
     try:
         database.insert_cache(conn, "lxns", "song_list_notes", json.dumps(payload, ensure_ascii=False))
-        database.upsert_catalog(conn, songs, charts)
+        database.replace_catalog(conn, songs, charts)
         return len(songs)
     finally:
         conn.close()
@@ -142,13 +151,20 @@ def safe_api_error(exc: Exception) -> str:
     return redactor.redact(exc)
 
 
-def _parse_lxns_chart(song_id: int, chart_type: str, item: dict[str, Any], is_utage: bool) -> Chart | None:
+def _parse_lxns_chart(
+    song_id: int,
+    chart_type: str,
+    item: dict[str, Any],
+    version_names: dict[int, str],
+    is_utage: bool,
+) -> Chart | None:
     if not isinstance(item, dict):
         return None
     difficulty_index = _optional_int(item.get("difficulty"))
     if difficulty_index is None:
         return None
     notes = item.get("notes") if isinstance(item.get("notes"), dict) else {}
+    chart_version = _optional_int(item.get("version"))
     return Chart(
         song_id=song_id,
         chart_type=chart_type,
@@ -156,7 +172,8 @@ def _parse_lxns_chart(song_id: int, chart_type: str, item: dict[str, Any], is_ut
         level=str(item.get("level") or ""),
         level_value=_optional_float(item.get("level_value")),
         charter=str(item.get("note_designer") or ""),
-        chart_version=_optional_int(item.get("version")),
+        chart_version=chart_version,
+        chart_version_name=version_names.get(chart_version or 0, ""),
         notes_total=_optional_int(notes.get("total")),
         notes_tap=_optional_int(notes.get("tap")),
         notes_hold=_optional_int(notes.get("hold")),
@@ -165,6 +182,20 @@ def _parse_lxns_chart(song_id: int, chart_type: str, item: dict[str, Any], is_ut
         notes_break=_optional_int(notes.get("break")),
         is_utage=is_utage,
     )
+
+
+def _parse_lxns_version_names(value: Any) -> dict[int, str]:
+    if not isinstance(value, list):
+        return {}
+    result: dict[int, str] = {}
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        version = _optional_int(item.get("version"))
+        title = str(item.get("title") or "").strip()
+        if version is not None and title:
+            result[version] = title
+    return result
 
 
 def _optional_int(value: Any) -> int | None:

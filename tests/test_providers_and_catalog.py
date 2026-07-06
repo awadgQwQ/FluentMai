@@ -48,6 +48,10 @@ def test_lxns_records_to_parsed():
 
 def test_parse_lxns_song_list_with_notes():
     payload = {
+        "versions": [
+            {"version": 10000, "title": "maimai"},
+            {"version": 24500, "title": "舞萌DX 2024"},
+        ],
         "songs": [
             {
                 "id": 8,
@@ -69,6 +73,17 @@ def test_parse_lxns_song_list_with_notes():
                         }
                     ],
                     "dx": [],
+                    "utage": [
+                        {
+                            "type": "utage",
+                            "difficulty": 0,
+                            "level": "14+?",
+                            "level_value": 0,
+                            "note_designer": "",
+                            "version": 24500,
+                            "notes": {"total": 1000, "tap": 700, "hold": 20, "slide": 80, "touch": 0, "break": 200},
+                        }
+                    ],
                 },
             }
         ]
@@ -80,6 +95,10 @@ def test_parse_lxns_song_list_with_notes():
     assert songs[0].bpm == 150
     assert charts[0].chart_type == "SD"
     assert charts[0].notes_total == 302
+    assert charts[0].chart_version_name == "maimai"
+    assert charts[1].chart_type == "UTAGE"
+    assert charts[1].is_utage is True
+    assert charts[1].notes_total == 1000
 
 
 def test_parse_diving_fish_music_data():
