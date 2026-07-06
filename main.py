@@ -11,6 +11,7 @@ else:
     data_dir = os.path.dirname(os.path.abspath(__file__))
 
 from ui_main import MainWindow
+from ui_tokens import apply_app_style
 
 
 if __name__ == '__main__':
@@ -27,6 +28,7 @@ if __name__ == '__main__':
     )
 
     app = QApplication(sys.argv)
+    apply_app_style(app)
     app.setWindowIcon(QIcon(os.path.join(data_dir, "assets", "logo.ico")))
     window = MainWindow()
     window.show()

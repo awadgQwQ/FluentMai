@@ -6,6 +6,7 @@ from PyQt6.QtCore import (
     QAbstractListModel,
     QEvent,
     QModelIndex,
+    QObject,
     QPoint,
     QRect,
     QRectF,
@@ -35,7 +36,7 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import BodyLabel, FluentIcon as FIF, InfoBar, InfoBarPosition, PushButton, SubtitleLabel
 
-from cover_manager import cover_path
+from cover_manager import BulkCoverWorker, resolve_jacket_path
 from fluentmai_core import database
 from fluentmai_core.catalog import safe_api_error, sync_diving_fish_catalog, sync_lxns_catalog
 from fluentmai_core.chart_browser import (
@@ -54,6 +55,40 @@ from fluentmai_core.chart_browser import (
     load_chart_records,
     query_chart_records,
 )
+from ui_tokens import (
+    BODY_PX,
+    CARD_PADDING,
+    CARD_RADIUS,
+    CONTROL_HEIGHT,
+    PAGE_GAP,
+    PAGE_MARGIN_X,
+    PAGE_MARGIN_Y,
+    PAGE_MAX_WIDTH,
+    SECONDARY_PX,
+    TITLE_PX,
+)
+
+
+FILTER_COMPACT_WIDTH = 860
+DETAIL_HIDE_WIDTH = 980
+RESULT_MIN_WIDTH = 430
+DETAIL_MIN_WIDTH = 340
+DETAIL_MAX_WIDTH = 460
+CARD_MIN_WIDTH = 390
+CARD_MAX_WIDTH = 500
+CARD_HEIGHT = 188
+JACKET_SIZE = 104
+
+
+class OpaqueComboBox(QComboBox):
+    def showPopup(self) -> None:
+        super().showPopup()
+        view = self.view()
+        if view is not None:
+            view.setAutoFillBackground(True)
+            view.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            view.viewport().setAutoFillBackground(True)
+            view.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
 
 class ChartQueryWorker(QThread):
@@ -98,6 +133,69 @@ class CatalogRefreshWorker(QThread):
             self.finished_with_message.emit(False, f"LXNS 失败：{first_error}；Diving-Fish 失败：{safe_api_error(exc)}")
 
 
+class JacketDownloadCoordinator(QObject):
+    jacket_ready = pyqtSignal(int, str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._queued: dict[int, str] = {}
+        self._failed: set[int] = set()
+        self._active_ids: set[int] = set()
+        self._completed_ids: set[int] = set()
+        self._worker: BulkCoverWorker | None = None
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(120)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.timeout.connect(self._start_next_batch)
+
+    def request(self, song_id: int, jacket_url: str = "") -> None:
+        if not song_id:
+            return
+        existing = resolve_jacket_path(song_id, jacket_url)
+        if existing:
+            QTimer.singleShot(0, lambda sid=song_id, path=existing: self.jacket_ready.emit(sid, path))
+            return
+        if os.environ.get("FLUENTMAI_DISABLE_JACKET_NETWORK") == "1":
+            return
+        if song_id in self._queued or song_id in self._active_ids or song_id in self._failed:
+            return
+        self._queued[song_id] = jacket_url
+        if not self._flush_timer.isActive():
+            self._flush_timer.start()
+
+    def _start_next_batch(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            return
+        if not self._queued:
+            return
+
+        items = list(self._queued.items())[:8]
+        for song_id, _jacket_url in items:
+            self._queued.pop(song_id, None)
+        self._active_ids = {song_id for song_id, _jacket_url in items}
+        self._completed_ids = set()
+
+        self._worker = BulkCoverWorker([(song_id, jacket_url) for song_id, jacket_url in items], self)
+        self._worker.cover_done.connect(self._on_cover_done)
+        self._worker.all_done.connect(self._on_batch_done)
+        self._worker.start()
+
+    def _on_cover_done(self, song_id: int, path: str) -> None:
+        self._completed_ids.add(song_id)
+        self._failed.discard(song_id)
+        self.jacket_ready.emit(song_id, path)
+
+    def _on_batch_done(self) -> None:
+        self._failed.update(self._active_ids - self._completed_ids)
+        if self._worker is not None:
+            self._worker.deleteLater()
+        self._worker = None
+        self._active_ids = set()
+        self._completed_ids = set()
+        if self._queued:
+            self._start_next_batch()
+
+
 class ChartListModel(QAbstractListModel):
     RECORD_ROLE = Qt.ItemDataRole.UserRole + 1
 
@@ -130,6 +228,8 @@ class ChartListModel(QAbstractListModel):
 
 
 class ChartCardDelegate(QStyledItemDelegate):
+    jacket_requested = pyqtSignal(int, str)
+
     _difficulty_colors = {
         0: QColor("#2f9e44"),
         1: QColor("#d9480f"),
@@ -140,10 +240,11 @@ class ChartCardDelegate(QStyledItemDelegate):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._pixmap_cache: dict[int, QPixmap | None] = {}
+        self._pixmap_cache: dict[tuple[int, str], QPixmap | None] = {}
+        self._requested: set[tuple[int, str]] = set()
 
     def sizeHint(self, option, index: QModelIndex) -> QSize:
-        return QSize(420, 174)
+        return QSize(CARD_MIN_WIDTH, CARD_HEIGHT)
 
     def paint(self, painter: QPainter, option, index: QModelIndex) -> None:
         record: ChartRecord | None = index.data(ChartListModel.RECORD_ROLE)
@@ -159,12 +260,12 @@ class ChartCardDelegate(QStyledItemDelegate):
         bg = QColor("#211936") if selected else QColor("#171b26" if hovered else "#141821")
         border = QColor("#8b5cf6") if selected else QColor("#2c3345")
         path = QPainterPath()
-        path.addRoundedRect(QRectF(rect), 8, 8)
+        path.addRoundedRect(QRectF(rect), CARD_RADIUS, CARD_RADIUS)
         painter.fillPath(path, bg)
         painter.setPen(QPen(border, 1.2))
         painter.drawPath(path)
 
-        image_rect = QRect(rect.left() + 12, rect.top() + 14, 96, 96)
+        image_rect = QRect(rect.left() + 14, rect.top() + 14, JACKET_SIZE, JACKET_SIZE)
         self._draw_jacket(painter, image_rect, record)
 
         text_left = image_rect.right() + 14
@@ -172,7 +273,7 @@ class ChartCardDelegate(QStyledItemDelegate):
         top = rect.top() + 12
 
         title_font = QFont(option.font)
-        title_font.setPointSize(11)
+        title_font.setPixelSize(BODY_PX + 1)
         title_font.setBold(True)
         painter.setFont(title_font)
         painter.setPen(QColor("#f5f7fb"))
@@ -184,7 +285,7 @@ class ChartCardDelegate(QStyledItemDelegate):
         )
 
         body_font = QFont(option.font)
-        body_font.setPointSize(9)
+        body_font.setPixelSize(SECONDARY_PX)
         painter.setFont(body_font)
         body_fm = QFontMetrics(body_font)
         painter.setPen(QColor("#aab2c4"))
@@ -241,7 +342,7 @@ class ChartCardDelegate(QStyledItemDelegate):
         path = QPainterPath()
         path.addRoundedRect(QRectF(rect), 7, 7)
         painter.setClipPath(path)
-        pixmap = self._pixmap_for(record.song_id)
+        pixmap = self._pixmap_for(record)
         if pixmap and not pixmap.isNull():
             scaled = pixmap.scaled(
                 rect.size(),
@@ -253,27 +354,42 @@ class ChartCardDelegate(QStyledItemDelegate):
             painter.drawPixmap(x, y, scaled)
         else:
             painter.fillRect(rect, QColor("#222938"))
-            painter.setPen(QColor("#8b96aa"))
+            painter.setPen(QColor("#76839a"))
             font = QFont(painter.font())
-            font.setPointSize(8)
-            font.setBold(True)
+            font.setPixelSize(SECONDARY_PX - 1)
+            font.setBold(False)
             painter.setFont(font)
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "NO\nJACKET")
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "No\nJacket")
+            self._request_jacket(record)
         painter.restore()
         painter.setPen(QPen(QColor("#30384c"), 1))
         painter.drawRoundedRect(rect, 7, 7)
 
-    def _pixmap_for(self, song_id: int) -> QPixmap | None:
-        if song_id in self._pixmap_cache:
-            return self._pixmap_cache[song_id]
-        path = cover_path(song_id)
-        pixmap = QPixmap(path) if os.path.exists(path) else QPixmap()
-        self._pixmap_cache[song_id] = pixmap if not pixmap.isNull() else None
-        return self._pixmap_cache[song_id]
+    def _pixmap_for(self, record: ChartRecord) -> QPixmap | None:
+        key = (record.song_id, record.jacket_url or "")
+        if key in self._pixmap_cache:
+            return self._pixmap_cache[key]
+        path = resolve_jacket_path(record.song_id, record.jacket_url)
+        pixmap = QPixmap(path) if path else QPixmap()
+        self._pixmap_cache[key] = pixmap if not pixmap.isNull() else None
+        return self._pixmap_cache[key]
+
+    def _request_jacket(self, record: ChartRecord) -> None:
+        key = (record.song_id, record.jacket_url or "")
+        if key in self._requested:
+            return
+        self._requested.add(key)
+        self.jacket_requested.emit(record.song_id, record.jacket_url)
+
+    def mark_jacket_ready(self, song_id: int) -> None:
+        for key in [key for key in self._pixmap_cache if key[0] == song_id]:
+            self._pixmap_cache.pop(key, None)
+        for key in [key for key in self._requested if key[0] == song_id]:
+            self._requested.discard(key)
 
     def _draw_pill(self, painter: QPainter, pos: QPoint, text: str, bg: QColor, fg: QColor) -> int:
         font = QFont(painter.font())
-        font.setPointSize(8)
+        font.setPixelSize(SECONDARY_PX - 1)
         font.setBold(True)
         painter.setFont(font)
         fm = QFontMetrics(font)
@@ -295,22 +411,26 @@ class ChartDetailPanel(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("DetailPanel")
-        self.setMinimumWidth(300)
-        self.setMaximumWidth(380)
+        self.setMinimumWidth(DETAIL_MIN_WIDTH)
+        self.setMaximumWidth(DETAIL_MAX_WIDTH)
+        self._current_record: ChartRecord | None = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setContentsMargins(CARD_PADDING, CARD_PADDING, CARD_PADDING, CARD_PADDING)
         layout.setSpacing(12)
 
-        self.cover_label = QLabel("NO\nJACKET")
+        self.cover_label = QLabel("No\nJacket")
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cover_label.setFixedSize(180, 180)
-        self.cover_label.setStyleSheet("background:#222938; color:#8b96aa; border:1px solid #30384c; border-radius:8px; font-weight:700;")
+        self.cover_label.setFixedSize(204, 204)
+        self.cover_label.setStyleSheet(
+            "background:#222938; color:#76839a; border:1px solid #30384c; "
+            "border-radius:8px; font-size:13px;"
+        )
         layout.addWidget(self.cover_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         self.title_label = SubtitleLabel("选择一张谱面")
         self.title_label.setWordWrap(True)
-        self.title_label.setStyleSheet("font-size: 18px; font-weight: 700;")
+        self.title_label.setStyleSheet("font-size: 20px; font-weight: 700;")
         layout.addWidget(self.title_label)
 
         self.subtitle_label = BodyLabel("点击左侧卡片查看详情")
@@ -331,15 +451,16 @@ class ChartDetailPanel(QFrame):
         ):
             label = BodyLabel("")
             label.setWordWrap(True)
-            label.setStyleSheet("color:#d7dce8; line-height:1.45;")
+            label.setStyleSheet(f"color:#d7dce8; font-size:{BODY_PX}px; line-height:1.45;")
             self.fields[key] = label
             layout.addWidget(label)
         layout.addStretch(1)
 
     def set_record(self, record: ChartRecord | None) -> None:
+        self._current_record = record
         if record is None:
             self.cover_label.setPixmap(QPixmap())
-            self.cover_label.setText("NO\nJACKET")
+            self.cover_label.setText("No\nJacket")
             self.title_label.setText("选择一张谱面")
             self.subtitle_label.setText("点击左侧卡片查看详情")
             for label in self.fields.values():
@@ -348,7 +469,7 @@ class ChartDetailPanel(QFrame):
 
         self.title_label.setText(record.title)
         self.subtitle_label.setText(record.artist or "未知艺术家")
-        self._set_cover(record.song_id)
+        self._set_cover(record)
         self.fields["difficulty"].setText(f"难度：{record.type_label} / {record.difficulty_label}")
         self.fields["constant"].setText(f"等级：{record.level or '--'}    定数：{record.const_label}")
         self.fields["meta"].setText(f"BPM：{record.bpm or '--'}    版本：{record.version_label}\n分区：{record.genre or '--'}")
@@ -383,46 +504,74 @@ class ChartDetailPanel(QFrame):
             self.fields["score"].setText("达成率：--    DX Score：--")
             self.fields["source"].setText("来源：--")
 
-    def _set_cover(self, song_id: int) -> None:
-        path = cover_path(song_id)
-        if os.path.exists(path):
-            pixmap = QPixmap(path)
-            if not pixmap.isNull():
-                self.cover_label.setText("")
-                self.cover_label.setPixmap(
-                    pixmap.scaled(
-                        self.cover_label.size(),
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
-                )
-                return
+    def _set_cover(self, record: ChartRecord) -> None:
+        path = resolve_jacket_path(record.song_id, record.jacket_url)
+        if path and self._apply_cover_path(path):
+            return
         self.cover_label.setPixmap(QPixmap())
-        self.cover_label.setText("NO\nJACKET")
+        self.cover_label.setText("No\nJacket")
+
+    def refresh_jacket(self, song_id: int, path: str) -> None:
+        if self._current_record and self._current_record.song_id == song_id:
+            self._apply_cover_path(path)
+
+    def _apply_cover_path(self, path: str) -> bool:
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return False
+        self.cover_label.setText("")
+        self.cover_label.setPixmap(
+            pixmap.scaled(
+                self.cover_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        return True
 
 
 class LibraryInterface(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("LibraryInterface")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._query_sequence = 0
         self._query_workers: dict[int, ChartQueryWorker] = {}
         self._refresh_worker: CatalogRefreshWorker | None = None
+        self._filters_compact: bool | None = None
+        self._detail_visible: bool | None = None
 
         self._debounce = QTimer(self)
         self._debounce.setInterval(180)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._start_query)
 
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(24, 28, 24, 20)
-        self.layout.setSpacing(14)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(PAGE_MARGIN_X, PAGE_MARGIN_Y, PAGE_MARGIN_X, 20)
+        outer.setSpacing(0)
+
+        self.content = QWidget(self)
+        self.content.setObjectName("LibraryContent")
+        self.content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.content.setMaximumWidth(PAGE_MAX_WIDTH)
+        self.content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.layout = QVBoxLayout(self.content)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(PAGE_GAP)
+
+        outer.addStretch(1)
+        outer.addWidget(self.content, 100)
+        outer.addStretch(1)
+
+        self.jacket_queue = JacketDownloadCoordinator(self)
+        self.jacket_queue.jacket_ready.connect(self._on_jacket_ready)
 
         self._build_header()
         self._build_filters()
         self._build_results()
         self._apply_style()
 
+        QTimer.singleShot(0, self._sync_responsive_layout)
         self._schedule_query()
 
     def _build_header(self) -> None:
@@ -435,15 +584,16 @@ class LibraryInterface(QWidget):
         title_box = QVBoxLayout()
         title_box.setSpacing(5)
         title = SubtitleLabel("歌曲与谱面查询")
-        title.setStyleSheet("font-size: 25px; font-weight: 800;")
+        title.setStyleSheet(f"font-size: {TITLE_PX}px; font-weight: 800;")
         self.catalog_count_label = BodyLabel("曲库谱面 --")
-        self.catalog_count_label.setStyleSheet("color:#aab2c4;")
+        self.catalog_count_label.setStyleSheet(f"color:#aab2c4; font-size:{SECONDARY_PX}px;")
         title_box.addWidget(title)
         title_box.addWidget(self.catalog_count_label)
 
         self.result_count_label = BodyLabel("匹配 --")
-        self.result_count_label.setStyleSheet("color:#d7dce8; font-weight:600;")
+        self.result_count_label.setStyleSheet(f"color:#d7dce8; font-size:{BODY_PX}px; font-weight:600;")
         self.refresh_button = PushButton(FIF.UPDATE, "刷新曲库")
+        self.refresh_button.setMinimumHeight(CONTROL_HEIGHT)
         self.refresh_button.clicked.connect(self._refresh_catalog)
 
         layout.addLayout(title_box, 1)
@@ -452,22 +602,31 @@ class LibraryInterface(QWidget):
         self.layout.addWidget(header)
 
     def _build_filters(self) -> None:
-        panel = QFrame()
-        panel.setObjectName("FilterPanel")
-        grid = QGridLayout(panel)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(10)
+        self.filter_panel = QFrame()
+        self.filter_panel.setObjectName("FilterPanel")
+        self.filter_grid = QGridLayout(self.filter_panel)
+        self.filter_grid.setContentsMargins(0, 0, 0, 0)
+        self.filter_grid.setHorizontalSpacing(10)
+        self.filter_grid.setVerticalSpacing(10)
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("曲名 / 艺术家 / 谱师 / 版本 / ID")
         self.level_input = QLineEdit()
         self.level_input.setPlaceholderText("等级或定数：13 / 13+ / 13.3")
-        self.difficulty_combo = QComboBox()
-        self.genre_combo = QComboBox()
-        self.version_combo = QComboBox()
-        self.status_combo = QComboBox()
-        self.sort_combo = QComboBox()
+        self.difficulty_combo = OpaqueComboBox()
+        self.genre_combo = OpaqueComboBox()
+        self.version_combo = OpaqueComboBox()
+        self.status_combo = OpaqueComboBox()
+        self.sort_combo = OpaqueComboBox()
+
+        for combo in (
+            self.difficulty_combo,
+            self.genre_combo,
+            self.version_combo,
+            self.status_combo,
+            self.sort_combo,
+        ):
+            self._prepare_combo(combo)
 
         self._set_combo_options(self.difficulty_combo, DIFFICULTY_OPTIONS, "all")
         self._set_combo_options(self.genre_combo, [FilterOption("all", "全部分区")], "all")
@@ -475,24 +634,20 @@ class LibraryInterface(QWidget):
         self._set_combo_options(self.status_combo, STATUS_OPTIONS, "all")
         self._set_combo_options(self.sort_combo, SORT_OPTIONS, "constant_desc")
 
-        widgets = [
-            ("搜索", self.search_input),
-            ("等级 / 定数", self.level_input),
-            ("难度", self.difficulty_combo),
-            ("分区", self.genre_combo),
-            ("版本", self.version_combo),
-            ("游玩状态", self.status_combo),
-            ("排序", self.sort_combo),
+        self._filter_items = [
+            (self._filter_label("搜索"), self.search_input, 520),
+            (self._filter_label("等级 / 定数"), self.level_input, 280),
+            (self._filter_label("难度"), self.difficulty_combo, 240),
+            (self._filter_label("分区"), self.genre_combo, 280),
+            (self._filter_label("版本"), self.version_combo, 260),
+            (self._filter_label("游玩状态"), self.status_combo, 240),
+            (self._filter_label("排序"), self.sort_combo, 300),
         ]
-        for index, (label, widget) in enumerate(widgets):
-            row = index // 2
-            col = (index % 2) * 2
-            grid.addWidget(self._filter_label(label), row, col)
-            grid.addWidget(widget, row, col + 1)
-            if isinstance(widget, QComboBox):
-                widget.setMinimumWidth(150)
-            else:
-                widget.setMinimumWidth(220)
+        for _label, widget, maximum in self._filter_items:
+            widget.setMinimumHeight(CONTROL_HEIGHT)
+            widget.setMinimumWidth(150)
+            widget.setMaximumWidth(maximum)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         for widget in (
             self.search_input,
@@ -508,16 +663,89 @@ class LibraryInterface(QWidget):
             else:
                 widget.currentIndexChanged.connect(self._schedule_query)
 
-        grid.setColumnStretch(1, 2)
-        grid.setColumnStretch(3, 1)
-        self.layout.addWidget(panel)
+        self.layout.addWidget(self.filter_panel)
+
+    def _prepare_combo(self, combo: QComboBox) -> None:
+        view = QListView(combo)
+        view.setUniformItemSizes(True)
+        view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        view.viewport().setAutoFillBackground(True)
+        view.setStyleSheet(
+            """
+            QListView {
+                background: #171b26;
+                color: #eef2ff;
+                border: 1px solid #485166;
+                border-radius: 8px;
+                outline: 0;
+                padding: 6px;
+                selection-background-color: #3730a3;
+                selection-color: #ffffff;
+            }
+            QListView::item {
+                min-height: 34px;
+                padding: 7px 10px;
+                background: #171b26;
+                color: #eef2ff;
+            }
+            QListView::item:hover {
+                background: #243044;
+            }
+            QListView::item:selected {
+                background: #3730a3;
+                color: #ffffff;
+            }
+            """
+        )
+        combo.setView(view)
+        combo.view().setAutoFillBackground(True)
+        combo.view().viewport().setAutoFillBackground(True)
+        combo.setMaxVisibleItems(8)
+
+    def _relayout_filters(self) -> None:
+        if not hasattr(self, "filter_grid"):
+            return
+        compact = self.content.width() < FILTER_COMPACT_WIDTH
+        if compact == self._filters_compact:
+            return
+        self._filters_compact = compact
+
+        while self.filter_grid.count():
+            self.filter_grid.takeAt(0)
+        for column in range(4):
+            self.filter_grid.setColumnStretch(column, 0)
+
+        if compact:
+            for row, (label, widget, _maximum) in enumerate(self._filter_items):
+                label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                widget.setMaximumWidth(16777215)
+                self.filter_grid.addWidget(label, row, 0)
+                self.filter_grid.addWidget(widget, row, 1)
+            self.filter_grid.setColumnMinimumWidth(0, 86)
+            self.filter_grid.setColumnStretch(1, 1)
+            return
+
+        for index, (label, widget, maximum) in enumerate(self._filter_items):
+            row = index // 2
+            col = (index % 2) * 2
+            label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            widget.setMaximumWidth(maximum)
+            self.filter_grid.addWidget(label, row, col)
+            self.filter_grid.addWidget(widget, row, col + 1)
+
+        self.filter_grid.setColumnMinimumWidth(0, 76)
+        self.filter_grid.setColumnMinimumWidth(2, 76)
+        self.filter_grid.setColumnStretch(1, 2)
+        self.filter_grid.setColumnStretch(3, 1)
 
     def _build_results(self) -> None:
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(10)
 
         self.model = ChartListModel(self)
         self.delegate = ChartCardDelegate(self)
+        self.delegate.jacket_requested.connect(self.jacket_queue.request)
         self.result_view = QListView()
         self.result_view.setModel(self.model)
         self.result_view.setItemDelegate(self.delegate)
@@ -528,28 +756,33 @@ class LibraryInterface(QWidget):
         self.result_view.setUniformItemSizes(True)
         self.result_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.result_view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.result_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.result_view.setMinimumWidth(RESULT_MIN_WIDTH)
+        self.result_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.result_view.setMouseTracking(True)
         self.result_view.clicked.connect(self._on_chart_clicked)
         self.result_view.viewport().installEventFilter(self)
 
         self.detail_panel = ChartDetailPanel()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(self.detail_panel)
+        self.detail_scroll = QScrollArea()
+        self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.detail_scroll.setMinimumWidth(DETAIL_MIN_WIDTH)
+        self.detail_scroll.setMaximumWidth(DETAIL_MAX_WIDTH + 20)
+        self.detail_scroll.setWidget(self.detail_panel)
 
-        splitter.addWidget(self.result_view)
-        splitter.addWidget(scroll)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        splitter.setSizes([760, 340])
-        self.layout.addWidget(splitter, 1)
+        self.splitter.addWidget(self.result_view)
+        self.splitter.addWidget(self.detail_scroll)
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([780, 390])
+        self.layout.addWidget(self.splitter, 1)
         QTimer.singleShot(0, self._update_grid_size)
 
     def _filter_label(self, text: str) -> QLabel:
         label = QLabel(text)
         label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        label.setStyleSheet("color:#aab2c4; font-size:12px;")
+        label.setStyleSheet(f"color:#aab2c4; font-size:{SECONDARY_PX}px;")
         label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         return label
 
@@ -607,6 +840,7 @@ class LibraryInterface(QWidget):
             first = self.model.index(0, 0)
             self.result_view.setCurrentIndex(first)
             self.detail_panel.set_record(result.records[0])
+            self._request_detail_jacket(result.records[0])
         else:
             self.detail_panel.set_record(None)
 
@@ -643,10 +877,26 @@ class LibraryInterface(QWidget):
             if option.code == selected_code:
                 selected_index = index
         combo.setCurrentIndex(selected_index)
+        if combo.view() is not None:
+            combo.view().setMinimumWidth(max(combo.minimumWidth(), combo.sizeHint().width()))
         combo.blockSignals(False)
 
     def _on_chart_clicked(self, index: QModelIndex) -> None:
-        self.detail_panel.set_record(self.model.record_at(index.row()))
+        record = self.model.record_at(index.row())
+        self.detail_panel.set_record(record)
+        if record:
+            self._request_detail_jacket(record)
+
+    def _request_detail_jacket(self, record: ChartRecord) -> None:
+        if not resolve_jacket_path(record.song_id, record.jacket_url):
+            self.jacket_queue.request(record.song_id, record.jacket_url)
+
+    def _on_jacket_ready(self, song_id: int, path: str) -> None:
+        self.delegate.mark_jacket_ready(song_id)
+        if hasattr(self, "result_view"):
+            self.result_view.viewport().update()
+        if hasattr(self, "detail_panel"):
+            self.detail_panel.refresh_jacket(song_id, path)
 
     def _refresh_catalog(self) -> None:
         if self._refresh_worker and self._refresh_worker.isRunning():
@@ -682,42 +932,101 @@ class LibraryInterface(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._sync_responsive_layout()
+
+    def _sync_responsive_layout(self) -> None:
+        self._relayout_filters()
+        self._update_detail_visibility()
         self._update_grid_size()
+
+    def _update_detail_visibility(self) -> None:
+        if not hasattr(self, "detail_scroll"):
+            return
+        show_detail = self.content.width() >= DETAIL_HIDE_WIDTH
+        if show_detail == self._detail_visible:
+            return
+        self._detail_visible = show_detail
+        self.detail_scroll.setVisible(show_detail)
+        if show_detail:
+            self.splitter.setSizes([780, 390])
 
     def _update_grid_size(self) -> None:
         if not hasattr(self, "result_view"):
             return
-        width = max(320, self.result_view.viewport().width() - 18)
-        columns = 2 if width >= 760 else 1
-        card_width = max(320, (width - (columns - 1) * 12) // columns)
-        self.result_view.setGridSize(QSize(card_width, 184))
+        width = max(CARD_MIN_WIDTH, self.result_view.viewport().width() - 18)
+        columns = 2 if width >= 840 else 1
+        raw_width = (width - (columns - 1) * 12) // columns
+        card_width = max(CARD_MIN_WIDTH, min(CARD_MAX_WIDTH, raw_width))
+        self.result_view.setGridSize(QSize(card_width, CARD_HEIGHT + 10))
         self.result_view.setSpacing(10)
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
             """
-            QWidget#LibraryInterface {
+            QWidget#LibraryInterface, QWidget#LibraryContent {
                 background: #0f1117;
                 color: #eef2ff;
             }
+            QFrame#HeaderPanel, QFrame#FilterPanel {
+                background: transparent;
+                border: none;
+            }
             QLineEdit, QComboBox {
-                min-height: 34px;
+                min-height: 40px;
                 border: 1px solid #30384c;
-                border-radius: 7px;
+                border-radius: 8px;
                 padding: 0 10px;
                 background: #151a24;
                 color: #eef2ff;
+                font-size: 15px;
                 selection-background-color: #7c3aed;
             }
             QLineEdit:focus, QComboBox:focus {
                 border: 1px solid #8b5cf6;
+            }
+            QComboBox::drop-down {
+                width: 30px;
+                border: none;
+                background: transparent;
+            }
+            QComboBox QAbstractItemView {
+                background: #171b26;
+                color: #eef2ff;
+                border: 1px solid #485166;
+                border-radius: 8px;
+                outline: 0;
+                padding: 6px;
+                selection-background-color: #3730a3;
+                selection-color: #ffffff;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 34px;
+                padding: 7px 10px;
+                background: #171b26;
+                color: #eef2ff;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background: #243044;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background: #3730a3;
+                color: #ffffff;
             }
             QListView {
                 background: transparent;
                 border: none;
                 outline: none;
             }
+            QListView::item {
+                background: transparent;
+            }
             QScrollArea {
+                background: transparent;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+            }
+            QSplitter::handle {
                 background: transparent;
             }
             QFrame#DetailPanel {

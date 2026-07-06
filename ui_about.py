@@ -14,12 +14,7 @@ else:
 
 
 def _scale_pixmap_to_height(pixmap, target_height, widget):
-    dpr = widget.devicePixelRatioF()
-    scaled = pixmap.scaledToHeight(
-        int(target_height * dpr), Qt.TransformationMode.SmoothTransformation
-    )
-    scaled.setDevicePixelRatio(dpr)
-    return scaled
+    return pixmap.scaledToHeight(target_height, Qt.TransformationMode.SmoothTransformation)
 
 
 class AboutInterface(ScrollArea):

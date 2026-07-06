@@ -42,9 +42,7 @@ class BrandingWidget(QWidget):
             logo_path = os.path.join(data_dir, "assets", "logo.jpg")
         if os.path.exists(logo_path):
             pixmap = QPixmap(logo_path)
-            dpr = self.devicePixelRatioF()
-            scaled = pixmap.scaledToHeight(int(22 * dpr), Qt.TransformationMode.SmoothTransformation)
-            scaled.setDevicePixelRatio(dpr)
+            scaled = pixmap.scaledToHeight(22, Qt.TransformationMode.SmoothTransformation)
             self.icon_label.setPixmap(scaled)
 
         self.title_label = QLabel("FluentMai", self)
@@ -76,8 +74,8 @@ class MainWindow(FluentWindow):
 
         self.setWindowTitle("FluentMai")
         self.setWindowIcon(QIcon(os.path.join(data_dir, "assets", "logo.ico")))
-        self.resize(1000, 660)
-        self.setMinimumSize(900, 600)
+        self.resize(1180, 760)
+        self.setMinimumSize(860, 620)
 
         self.navigationInterface.setReturnButtonVisible(False)
         self.navigationInterface.setExpandWidth(207)
