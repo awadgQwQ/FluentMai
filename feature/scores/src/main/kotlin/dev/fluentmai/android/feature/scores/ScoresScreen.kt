@@ -8,7 +8,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,8 +39,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -48,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +60,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,17 +68,23 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import dev.fluentmai.android.core.model.ChartRecord
+import dev.fluentmai.android.core.model.ChartIdentity
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.FullComboStatus
+import dev.fluentmai.android.core.model.FullSyncStatus
 import dev.fluentmai.android.core.model.MaimaiMajorVersion
 import dev.fluentmai.android.core.model.MaimaiRatedScore
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongAliasCatalog
 import dev.fluentmai.android.core.model.SongType
 import dev.fluentmai.android.core.model.buildMaimaiBestSet
 import dev.fluentmai.android.core.model.calculateDxRating
+import dev.fluentmai.android.core.model.matchChartsForScores
 import dev.fluentmai.android.core.model.maimaiRatedScoreComparator
 import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
 import java.text.Normalizer
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
@@ -80,6 +92,7 @@ fun ScoresScreen(
     scores: List<ScoreRecord>,
     charts: List<ChartRecord>,
     majorVersions: List<MaimaiMajorVersion>,
+    onChartSelected: (ChartIdentity) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val enrichedScores = remember(scores, charts) { enrichScores(scores, charts) }
@@ -136,17 +149,17 @@ fun ScoresScreen(
                 SectionTitle("旧版本 Best 35", bestSet.oldBest.size)
             }
             items(bestSet.oldBest, key = { "old-${it.score.id}" }) { item ->
-                ScoreCard(item = item, rank = bestSet.oldBest.indexOf(item) + 1)
+                ScoreCard(item = item, rank = bestSet.oldBest.indexOf(item) + 1, onChartSelected = onChartSelected)
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 SectionTitle("当前版本 Best 15", bestSet.newBest.size)
             }
             items(bestSet.newBest, key = { "new-${it.score.id}" }) { item ->
-                ScoreCard(item = item, rank = bestSet.newBest.indexOf(item) + 1)
+                ScoreCard(item = item, rank = bestSet.newBest.indexOf(item) + 1, onChartSelected = onChartSelected)
             }
         } else {
             items(visibleScores, key = { it.score.id }) { item ->
-                ScoreCard(item = item, rank = visibleScores.indexOf(item) + 1)
+                ScoreCard(item = item, rank = visibleScores.indexOf(item) + 1, onChartSelected = onChartSelected)
             }
         }
     }
@@ -157,8 +170,10 @@ fun ChartQueryScreen(
     charts: List<ChartRecord>,
     scores: List<ScoreRecord>,
     majorVersions: List<MaimaiMajorVersion>,
+    aliases: SongAliasCatalog = SongAliasCatalog.Empty,
     isLoading: Boolean,
     onRefresh: () -> Unit,
+    onChartSelected: (ChartIdentity) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val queryViewModel: ChartQueryViewModel = viewModel()
@@ -168,7 +183,7 @@ fun ChartQueryScreen(
         resolveCurrentMaimaiVersion(majorVersions, charts)?.majorVersion?.id ?: 0
     }
     SideEffect {
-        queryViewModel.submitCatalog(charts, scores, currentVersion)
+        queryViewModel.submitCatalog(charts, scores, currentVersion, aliases)
     }
     val gridState = rememberLazyGridState(
         initialFirstVisibleItemIndex = queryViewModel.restoredScrollIndex,
@@ -211,8 +226,23 @@ fun ChartQueryScreen(
                 onVersionFilterChanged = queryViewModel::updateVersion,
                 statusFilter = filters.status,
                 onStatusFilterChanged = queryViewModel::updateStatus,
+                songType = filters.songType,
+                onSongTypeChanged = queryViewModel::updateSongType,
+                constantMin = filters.constantMin,
+                constantMax = filters.constantMax,
+                onConstantRangeChanged = queryViewModel::updateConstantRange,
+                achievementMin = filters.achievementMin,
+                achievementMax = filters.achievementMax,
+                onAchievementRangeChanged = queryViewModel::updateAchievementRange,
+                fullCombo = filters.fullCombo,
+                onFullComboChanged = queryViewModel::updateFullCombo,
+                fullSync = filters.fullSync,
+                onFullSyncChanged = queryViewModel::updateFullSync,
                 sortMode = filters.sort,
                 onSortModeChanged = queryViewModel::updateSort,
+                hasActiveFilters = filters != ChartQueryFilters(),
+                activeAdvancedFilters = filters.activeAdvancedLabels(),
+                onReset = queryViewModel::resetFilters,
             )
         }
 
@@ -235,7 +265,11 @@ fun ChartQueryScreen(
                 uiState.result.items,
                 key = { "${it.chart.songId}-${it.chart.songType}-${it.chart.levelIndex}" },
             ) { item ->
-                ChartCard(chart = item.chart, score = item.score)
+                ChartCard(
+                    chart = item.chart,
+                    score = item.score,
+                    onClick = { onChartSelected(ChartIdentity.from(item.chart)) },
+                )
             }
         }
     }
@@ -344,14 +378,45 @@ private fun ChartFilters(
     onVersionFilterChanged: (ChartVersionFilter) -> Unit,
     statusFilter: ChartStatusFilter,
     onStatusFilterChanged: (ChartStatusFilter) -> Unit,
+    songType: SongType?,
+    onSongTypeChanged: (SongType?) -> Unit,
+    constantMin: Double?,
+    constantMax: Double?,
+    onConstantRangeChanged: (Double?, Double?) -> Unit,
+    achievementMin: Double?,
+    achievementMax: Double?,
+    onAchievementRangeChanged: (Double?, Double?) -> Unit,
+    fullCombo: FullComboStatus?,
+    onFullComboChanged: (FullComboStatus?) -> Unit,
+    fullSync: FullSyncStatus?,
+    onFullSyncChanged: (FullSyncStatus?) -> Unit,
     sortMode: ChartSort,
     onSortModeChanged: (ChartSort) -> Unit,
+    hasActiveFilters: Boolean,
+    activeAdvancedFilters: List<String>,
+    onReset: () -> Unit,
 ) {
+    var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (hasActiveFilters) "筛选条件 · 已启用" else "筛选条件",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            TextButton(onClick = onReset, enabled = hasActiveFilters) {
+                Icon(Icons.Filled.Clear, contentDescription = null)
+                Text("重置")
+            }
+        }
         SearchField(
             value = searchQuery,
             onValueChanged = onSearchQueryChanged,
-            label = "曲名 / 谱师 / 艺术家 / 版本",
+            label = "曲名 / 别名 / ID / BPM / 曲师 / 谱师",
         )
         OutlinedTextField(
             value = levelQuery,
@@ -366,6 +431,40 @@ private fun ChartFilters(
                     }
                 }
             },
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilterChip(
+                selected = advancedExpanded,
+                onClick = { advancedExpanded = !advancedExpanded },
+                label = {
+                    Text(
+                        if (activeAdvancedFilters.isEmpty()) "更多筛选" else "更多筛选 · ${activeAdvancedFilters.size}",
+                    )
+                },
+            )
+            if (advancedExpanded) {
+                Text("定数 / 难度 / 版本 / 成绩状态", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        if (!advancedExpanded && activeAdvancedFilters.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(activeAdvancedFilters.size) { index ->
+                    AssistChip(
+                        onClick = { advancedExpanded = true },
+                        label = { Text(activeAdvancedFilters[index]) },
+                    )
+                }
+            }
+        }
+        if (advancedExpanded) {
+        ConstantRangeFilter(
+            minimum = constantMin,
+            maximum = constantMax,
+            onRangeChanged = onConstantRangeChanged,
         )
         ChipRow {
             FilterChip(
@@ -400,11 +499,58 @@ private fun ChartFilters(
             }
         }
         ChipRow {
+            FilterChip(
+                selected = songType == null,
+                onClick = { onSongTypeChanged(null) },
+                label = { Text("SD / DX") },
+            )
+            SongType.entries.forEach { type ->
+                FilterChip(
+                    selected = songType == type,
+                    onClick = { onSongTypeChanged(type) },
+                    label = { Text(type.displayName()) },
+                )
+            }
+        }
+        ChipRow {
             ChartStatusFilter.entries.forEach { item ->
                 FilterChip(
                     selected = statusFilter == item,
                     onClick = { onStatusFilterChanged(item) },
                     label = { Text(item.label) },
+                )
+            }
+        }
+        AchievementRangeFilter(
+            minimum = achievementMin,
+            maximum = achievementMax,
+            onRangeChanged = onAchievementRangeChanged,
+        )
+        ChipRow {
+            FilterChip(
+                selected = fullCombo == null,
+                onClick = { onFullComboChanged(null) },
+                label = { Text("全部 FC") },
+            )
+            FullComboStatus.entries.filter { it != FullComboStatus.UNKNOWN }.forEach { status ->
+                FilterChip(
+                    selected = fullCombo == status,
+                    onClick = { onFullComboChanged(status) },
+                    label = { Text(status.displayName) },
+                )
+            }
+        }
+        ChipRow {
+            FilterChip(
+                selected = fullSync == null,
+                onClick = { onFullSyncChanged(null) },
+                label = { Text("全部 FS") },
+            )
+            FullSyncStatus.entries.filter { it != FullSyncStatus.UNKNOWN }.forEach { status ->
+                FilterChip(
+                    selected = fullSync == status,
+                    onClick = { onFullSyncChanged(status) },
+                    label = { Text(status.displayName) },
                 )
             }
         }
@@ -438,7 +584,96 @@ private fun ChartFilters(
                 label = { Text(if (sortMode == ChartSort.TitleDesc) ChartSort.TitleDesc.label else ChartSort.TitleAsc.label) },
             )
         }
+        }
     }
+}
+
+@Composable
+private fun ConstantRangeFilter(
+    minimum: Double?,
+    maximum: Double?,
+    onRangeChanged: (Double?, Double?) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("定数范围", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DecimalFilterField(
+                value = minimum,
+                label = "最低",
+                modifier = Modifier.weight(1f),
+                onValueChanged = { onRangeChanged(it, maximum) },
+            )
+            DecimalFilterField(
+                value = maximum,
+                label = "最高",
+                modifier = Modifier.weight(1f),
+                onValueChanged = { onRangeChanged(minimum, it) },
+            )
+        }
+        RangeSlider(
+            value = (minimum ?: MIN_CHART_CONSTANT).toFloat()..(maximum ?: MAX_CHART_CONSTANT).toFloat(),
+            onValueChange = { range ->
+                onRangeChanged(range.start.roundToTenth(), range.endInclusive.roundToTenth())
+            },
+            valueRange = MIN_CHART_CONSTANT.toFloat()..MAX_CHART_CONSTANT.toFloat(),
+            steps = 139,
+        )
+    }
+}
+
+@Composable
+private fun AchievementRangeFilter(
+    minimum: Double?,
+    maximum: Double?,
+    onRangeChanged: (Double?, Double?) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("达成率范围", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DecimalFilterField(
+                value = minimum,
+                label = "最低 %",
+                modifier = Modifier.weight(1f),
+                onValueChanged = { onRangeChanged(it, maximum) },
+            )
+            DecimalFilterField(
+                value = maximum,
+                label = "最高 %",
+                modifier = Modifier.weight(1f),
+                onValueChanged = { onRangeChanged(minimum, it) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun DecimalFilterField(
+    value: Double?,
+    label: String,
+    modifier: Modifier = Modifier,
+    onValueChanged: (Double?) -> Unit,
+) {
+    var localText by remember { mutableStateOf(value?.let { String.format(Locale.US, "%.1f", it) }.orEmpty()) }
+    LaunchedEffect(value) {
+        val localValue = localText.replace(',', '.').toDoubleOrNull()
+        if (localValue != value) {
+            localText = value?.let { String.format(Locale.US, "%.1f", it) }.orEmpty()
+        }
+    }
+    OutlinedTextField(
+        value = localText,
+        onValueChange = { raw ->
+            val normalized = raw.trim().replace(',', '.')
+            if (normalized.matches(Regex("\\d{0,3}(\\.\\d{0,4})?"))) {
+                localText = normalized
+                if (normalized.isEmpty()) onValueChanged(null) else normalized.toDoubleOrNull()?.let(onValueChanged)
+            }
+        },
+        modifier = modifier,
+        singleLine = true,
+        label = { Text(label) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+    )
 }
 
 @Composable
@@ -490,10 +725,20 @@ private fun SectionTitle(title: String, count: Int) {
 }
 
 @Composable
-private fun ScoreCard(item: MaimaiRatedScore, rank: Int) {
+private fun ScoreCard(
+    item: MaimaiRatedScore,
+    rank: Int,
+    onChartSelected: (ChartIdentity) -> Unit,
+) {
     val difficultyColor = item.score.difficulty.color()
+    val openDetail = {
+        item.chart?.let { onChartSelected(ChartIdentity.from(it)) }
+        Unit
+    }
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = item.chart != null, onClick = openDetail),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(
@@ -523,6 +768,7 @@ private fun ScoreCard(item: MaimaiRatedScore, rank: Int) {
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
+                            onClick = openDetail,
                         )
                     }
                     val scoreSubtitle = listOfNotNull(
@@ -579,9 +825,12 @@ private fun ScoreCard(item: MaimaiRatedScore, rank: Int) {
 private fun ChartCard(
     chart: ChartRecord,
     score: ScoreRecord?,
+    onClick: () -> Unit,
 ) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         colors = CardDefaults.elevatedCardColors(
             containerColor = if (score == null) {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
@@ -611,6 +860,7 @@ private fun ChartCard(
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                        onClick = onClick,
                     )
                     CopyableText(
                         text = chart.artist.ifBlank { chart.genre },
@@ -706,12 +956,13 @@ private fun CopyableText(
     fontWeight: FontWeight? = null,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
+    onClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     Text(
         text = text,
         modifier = modifier.combinedClickable(
-            onClick = {},
+            onClick = onClick,
             onLongClick = {
                 copyText?.takeIf { it.isNotBlank() }?.let { value ->
                     copyToClipboard(context, copyLabel, value)
@@ -918,15 +1169,31 @@ private fun MaimaiRatedScore.matches(query: String): Boolean {
 }
 
 private fun enrichScores(scores: List<ScoreRecord>, charts: List<ChartRecord>): List<MaimaiRatedScore> {
-    val chartMap = charts.associateBy { ScoreKey.fromChart(it) }
+    val chartMap = matchChartsForScores(charts, scores)
     return scores.map { score ->
-        val chart = chartMap[ScoreKey.fromScore(score)]
+        val chart = chartMap[score.id]
         MaimaiRatedScore(
             score = score,
             chart = chart,
             rating = chart?.levelValue?.let { calculateDxRating(it, score.achievement, score.fc) },
         )
     }
+}
+
+private fun ChartQueryFilters.activeAdvancedLabels(): List<String> = buildList {
+    if (constantMin != null || constantMax != null) {
+        add("定数 ${constantMin?.formatConst() ?: "--"}–${constantMax?.formatConst() ?: "--"}")
+    }
+    difficulty?.let { add(it.displayName()) }
+    if (genre != ChartGenreFilter.All) add(genre.label)
+    if (version != ChartVersionFilter.All) add(version.label)
+    songType?.let { add(it.displayName()) }
+    if (status != ChartStatusFilter.All) add(status.label)
+    if (achievementMin != null || achievementMax != null) {
+        add("达成率 ${achievementMin?.formatConst() ?: "--"}–${achievementMax?.formatConst() ?: "--"}%")
+    }
+    fullCombo?.let { add(it.displayName) }
+    fullSync?.let { add(it.displayName) }
 }
 
 private fun ScoreRecord.rankName(): String =
@@ -1018,4 +1285,11 @@ private fun jacketUrl(songId: Int): String =
     "https://assets2.lxns.net/maimai/jacket/$songId.png"
 
 internal fun normalizeQuery(value: String): String =
-    Normalizer.normalize(value.trim(), Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+    Normalizer.normalize(value.trim(), Normalizer.Form.NFKC)
+        .lowercase(Locale.ROOT)
+        .replace(Regex("[\\s._·・:：!！?？'\"“”‘’()（）\\[\\]【】/\\\\-]+"), "")
+
+private const val MIN_CHART_CONSTANT = 1.0
+private const val MAX_CHART_CONSTANT = 15.0
+
+private fun Float.roundToTenth(): Double = (this * 10f).roundToInt() / 10.0

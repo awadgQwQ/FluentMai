@@ -17,7 +17,29 @@ data class ChartRecord(
     val levelValue: Double?,
     val noteDesigner: String,
     val notes: ChartNotes?,
+    val isLocked: Boolean? = null,
+    val isDisabled: Boolean? = null,
 )
+
+enum class ChartAvailability {
+    AVAILABLE,
+    LOCKED,
+    DISABLED,
+    UPCOMING,
+    UNKNOWN,
+}
+
+fun ChartRecord.availability(currentVersion: Int?): ChartAvailability =
+    when {
+        isDisabled == true -> ChartAvailability.DISABLED
+        isLocked == true -> ChartAvailability.LOCKED
+        currentVersion != null && currentVersion > 0 && songVersion > currentVersion ->
+            ChartAvailability.UPCOMING
+        isDisabled == false && isLocked == false &&
+            (currentVersion == null || currentVersion <= 0 || songVersion <= currentVersion) ->
+            ChartAvailability.AVAILABLE
+        else -> ChartAvailability.UNKNOWN
+    }
 
 data class ChartNotes(
     val total: Int?,

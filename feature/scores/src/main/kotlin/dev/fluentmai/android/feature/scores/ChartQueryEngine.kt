@@ -1,16 +1,29 @@
 package dev.fluentmai.android.feature.scores
 
 import dev.fluentmai.android.core.model.ChartRecord
+import dev.fluentmai.android.core.model.ChartIdentity
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.FullComboStatus
+import dev.fluentmai.android.core.model.FullSyncStatus
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongAliasCatalog
+import dev.fluentmai.android.core.model.SongType
+import dev.fluentmai.android.core.model.buildPlayerRecordCatalog
 
 internal data class ChartQueryFilters(
     val searchQuery: String = "",
     val levelQuery: String = "",
+    val constantMin: Double? = null,
+    val constantMax: Double? = null,
     val difficulty: Difficulty? = null,
     val genre: ChartGenreFilter = ChartGenreFilter.All,
     val version: ChartVersionFilter = ChartVersionFilter.All,
     val status: ChartStatusFilter = ChartStatusFilter.All,
+    val songType: SongType? = null,
+    val achievementMin: Double? = null,
+    val achievementMax: Double? = null,
+    val fullCombo: FullComboStatus? = null,
+    val fullSync: FullSyncStatus? = null,
     val sort: ChartSort = ChartSort.ConstantDesc,
 )
 
@@ -39,8 +52,11 @@ internal class ChartQueryEngine private constructor(
                 filters.genre.matches(entry.normalizedGenre) &&
                 filters.version.matches(entry.chart, currentVersion) &&
                 entry.chart.matchesLevel(filters.levelQuery) &&
+                filters.matchesConstant(entry.chart.levelValue) &&
                 entry.matchesSearch(normalizedQuery, designerAliases) &&
-                filters.status.matches(entry.score)
+                filters.status.matches(entry.score) &&
+                (filters.songType == null || entry.chart.songType == filters.songType) &&
+                filters.matchesScore(entry.score)
         }
         val items = matched
             .sortedWith(filters.sort.comparator())
@@ -50,13 +66,18 @@ internal class ChartQueryEngine private constructor(
     }
 
     companion object {
-        fun create(charts: List<ChartRecord>, scores: List<ScoreRecord>): ChartQueryEngine {
-            val scoreIndex = ScoreIndex.from(scores)
+        fun create(
+            charts: List<ChartRecord>,
+            scores: List<ScoreRecord>,
+            aliases: SongAliasCatalog = SongAliasCatalog.Empty,
+        ): ChartQueryEngine {
+            val scoresByIdentity = buildPlayerRecordCatalog(charts, scores).records
+                .associate { it.identity to it.score }
             return ChartQueryEngine(
                 entries = charts.map { chart ->
                     IndexedChart(
                         chart = chart,
-                        score = scoreIndex.scoreFor(chart),
+                        score = scoresByIdentity[ChartIdentity.from(chart)],
                         normalizedGenre = normalizeQuery(chart.genre),
                         normalizedTitle = normalizeQuery(chart.title),
                         searchableFields = listOf(
@@ -68,14 +89,27 @@ internal class ChartQueryEngine private constructor(
                             chart.chartVersionName.orEmpty(),
                             chart.bpm?.toString().orEmpty(),
                             chart.songId.toString(),
+                            "${chart.songId}-${chart.songType.name}-${chart.difficulty.name}",
                             chart.difficulty.name,
                             chart.songType.name,
-                        ).map(::normalizeQuery),
+                        ).plus(aliases.aliasesFor(chart.songId)).map(::normalizeQuery),
                     )
                 },
             )
         }
     }
+}
+
+private fun ChartQueryFilters.matchesConstant(value: Double?): Boolean =
+    (constantMin == null || (value != null && value >= constantMin)) &&
+        (constantMax == null || (value != null && value <= constantMax))
+
+private fun ChartQueryFilters.matchesScore(score: ScoreRecord?): Boolean {
+    if (achievementMin != null && (score == null || score.achievement < achievementMin)) return false
+    if (achievementMax != null && (score == null || score.achievement > achievementMax)) return false
+    if (fullCombo != null && FullComboStatus.fromWireValue(score?.fc) != fullCombo) return false
+    if (fullSync != null && FullSyncStatus.fromWireValue(score?.fs) != fullSync) return false
+    return true
 }
 
 internal data class IndexedChart(
@@ -228,8 +262,7 @@ private fun designerAliasesFor(query: String): Set<String> =
             setOf("サファ太").map(::normalizeQuery).toSet()
         query.contains("哈皮") ->
             setOf("はっぴー").map(::normalizeQuery).toSet()
-        query.contains("7.3") ||
-            query.contains("7_3") ||
+        query.contains("73") ||
             query.contains("shichimi") ||
             query.contains("シチミ") ||
             query.contains("七味") ->

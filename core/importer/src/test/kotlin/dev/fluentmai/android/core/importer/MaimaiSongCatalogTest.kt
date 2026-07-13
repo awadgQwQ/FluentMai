@@ -6,6 +6,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import dev.fluentmai.android.core.model.SongType
+import dev.fluentmai.android.core.model.ChartAvailability
+import dev.fluentmai.android.core.model.availability
 
 class MaimaiSongCatalogTest {
     @Test
@@ -25,6 +27,8 @@ class MaimaiSongCatalogTest {
                   "genre": "maimai",
                   "bpm": 150,
                   "version": 10000,
+                  "locked": false,
+                  "disabled": false,
                   "difficulties": {
                     "standard": [
                       {"difficulty": 0, "level": "7+", "level_value": 7.7, "note_designer": "-", "version": 10000},
@@ -69,6 +73,35 @@ class MaimaiSongCatalogTest {
         assertEquals("7.3GHz", chart.noteDesigner)
         assertEquals("maimai", chart.chartVersionName)
         assertEquals(1000, chart.notes?.total)
+        assertEquals(false, chart.isLocked)
+        assertEquals(false, chart.isDisabled)
+        assertEquals(ChartAvailability.AVAILABLE, chart.availability(25_500))
+    }
+
+    @Test
+    fun preservesAvailabilityUncertaintyAndExplicitStates() {
+        val catalog = MaimaiSongCatalog.fromLxnsSongListJson(
+            """
+            {
+              "songs": [
+                {"id": 1, "title": "Unknown", "version": 25500,
+                  "difficulties": {"standard": [{"difficulty": 3, "level": "13"}], "dx": []}},
+                {"id": 2, "title": "Locked", "version": 25500, "locked": true,
+                  "difficulties": {"standard": [{"difficulty": 3, "level": "13"}], "dx": []}},
+                {"id": 3, "title": "Disabled", "version": 25500, "disabled": true,
+                  "difficulties": {"standard": [{"difficulty": 3, "level": "13"}], "dx": []}},
+                {"id": 4, "title": "Future", "version": 26000, "locked": false, "disabled": false,
+                  "difficulties": {"standard": [{"difficulty": 3, "level": "13"}], "dx": []}}
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val availability = catalog.charts().associate { it.songId to it.availability(25_500) }
+        assertEquals(ChartAvailability.UNKNOWN, availability[1])
+        assertEquals(ChartAvailability.LOCKED, availability[2])
+        assertEquals(ChartAvailability.DISABLED, availability[3])
+        assertEquals(ChartAvailability.UPCOMING, availability[4])
     }
 
     @Test

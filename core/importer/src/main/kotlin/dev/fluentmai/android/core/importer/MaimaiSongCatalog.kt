@@ -80,6 +80,8 @@ class MaimaiSongCatalog private constructor(
                     val genre = song.optString("genre")
                     val bpm = song.optNullableInt("bpm")
                     val songVersion = song.optInt("version", 0)
+                    val isLocked = song.optNullableBoolean("locked")
+                    val isDisabled = song.optNullableBoolean("disabled")
                     val difficulties = song.optJSONObject("difficulties")
                     val standardCharts = parseCharts(
                         charts = difficulties?.optJSONArray("standard"),
@@ -111,6 +113,8 @@ class MaimaiSongCatalog private constructor(
                         songVersion = songVersion,
                         songVersionName = versionNames[songVersion],
                         songType = SongType.STANDARD,
+                        isLocked = isLocked,
+                        isDisabled = isDisabled,
                     )
                     parsedCharts += dxCharts.toChartRecords(
                         songId = id,
@@ -121,6 +125,8 @@ class MaimaiSongCatalog private constructor(
                         songVersion = songVersion,
                         songVersionName = versionNames[songVersion],
                         songType = SongType.DX,
+                        isLocked = isLocked,
+                        isDisabled = isDisabled,
                     )
                 }
             }
@@ -181,6 +187,9 @@ class MaimaiSongCatalog private constructor(
 
         private fun JSONObject.optNullableDouble(name: String): Double? =
             if (has(name) && !isNull(name)) optDouble(name) else null
+
+        private fun JSONObject.optNullableBoolean(name: String): Boolean? =
+            if (has(name) && !isNull(name)) optBoolean(name) else null
     }
 }
 
@@ -228,6 +237,8 @@ private fun Map<Int, ChartMetadata>.toChartRecords(
     songVersion: Int,
     songVersionName: String?,
     songType: SongType,
+    isLocked: Boolean?,
+    isDisabled: Boolean?,
 ): List<ChartRecord> =
     mapNotNull { (levelIndex, chart) ->
         val difficulty = Difficulty.fromLevelIndex(levelIndex) ?: return@mapNotNull null
@@ -248,5 +259,7 @@ private fun Map<Int, ChartMetadata>.toChartRecords(
             levelValue = chart.levelValue,
             noteDesigner = chart.noteDesigner,
             notes = chart.notes,
+            isLocked = isLocked,
+            isDisabled = isDisabled,
         )
     }

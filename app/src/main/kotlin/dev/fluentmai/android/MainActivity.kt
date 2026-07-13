@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,17 +54,22 @@ import dev.fluentmai.android.core.importer.WahlapScorePageProvider
 import dev.fluentmai.android.core.importer.WahlapFixtureParser
 import dev.fluentmai.android.core.importer.WahlapSupplementalPageProvider
 import dev.fluentmai.android.core.model.ChartRecord
+import dev.fluentmai.android.core.model.ChartIdentity
 import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.ImportResult
 import dev.fluentmai.android.core.model.MaimaiMajorVersion
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongAliasCatalog
+import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
 import dev.fluentmai.android.core.upload.MaimaiScoreUploader
 import dev.fluentmai.android.core.upload.MaimaiUploadProgress
 import dev.fluentmai.android.core.upload.MaimaiUploadResult
 import dev.fluentmai.android.feature.importflow.ImportScreen
 import dev.fluentmai.android.feature.scores.ChartQueryScreen
+import dev.fluentmai.android.feature.scores.ChartDetailScreen
+import dev.fluentmai.android.feature.scores.AliasDataStatus
 import dev.fluentmai.android.feature.scores.PlayerRecordsScreen
 import dev.fluentmai.android.feature.scores.ScoresScreen
 import dev.fluentmai.android.feature.settings.SettingsScreen
@@ -92,6 +98,13 @@ class MainActivity : ComponentActivity() {
             redactor = privacyRedactor,
         )
     }
+    private val songAliasStore by lazy {
+        SongAliasStore(
+            context = this,
+            client = songCatalogClient,
+            redactor = privacyRedactor,
+        )
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -104,6 +117,8 @@ class MainActivity : ComponentActivity() {
                     runCookieImport = { cookieInput -> runCookieImport(cookieInput) },
                     loadLocalChartCatalog = { songCatalogStore.loadLocalCatalog() },
                     refreshChartCatalog = { songCatalogStore.refreshFromNetwork() },
+                    loadLocalAliasCatalog = { knownSongIds -> songAliasStore.loadLocalCatalog(knownSongIds) },
+                    refreshAliasCatalog = { knownSongIds -> songAliasStore.refreshFromNetwork(knownSongIds) },
                     uploadToDivingFish = { token, onProgress -> uploadToDivingFish(token, onProgress) },
                     rebuildDivingFish = { token, onProgress -> rebuildDivingFish(token, onProgress) },
                     uploadToLxns = { token, onProgress -> uploadToLxns(token, onProgress) },
@@ -235,6 +250,8 @@ private fun FluentMaiApp(
     runCookieImport: suspend (String) -> RealWahlapImportResult,
     loadLocalChartCatalog: suspend () -> SongCatalogSnapshot?,
     refreshChartCatalog: suspend () -> SongCatalogSnapshot,
+    loadLocalAliasCatalog: suspend (Set<Int>) -> SongAliasSnapshot?,
+    refreshAliasCatalog: suspend (Set<Int>) -> SongAliasSnapshot,
     uploadToDivingFish: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
     rebuildDivingFish: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
     uploadToLxns: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
@@ -246,10 +263,13 @@ private fun FluentMaiApp(
     val hookStatus by WahlapHookBridge.status.collectAsState()
     val isHookRunning by WahlapHookBridge.vpnRunning.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
+    var selectedChartKey by rememberSaveable { mutableStateOf<String?>(null) }
     var scoreCount by remember { mutableStateOf(0) }
     var scores by remember { mutableStateOf<List<ScoreRecord>>(emptyList()) }
     var chartRecords by remember { mutableStateOf<List<ChartRecord>>(emptyList()) }
     var chartMajorVersions by remember { mutableStateOf<List<MaimaiMajorVersion>>(emptyList()) }
+    var songAliases by remember { mutableStateOf(SongAliasCatalog.Empty) }
+    var songAliasSnapshot by remember { mutableStateOf<SongAliasSnapshot?>(null) }
     var isChartCatalogLoading by remember { mutableStateOf(false) }
     var isScoreStateLoaded by remember { mutableStateOf(false) }
     var isRatingReadyLogged by remember { mutableStateOf(false) }
@@ -330,6 +350,18 @@ private fun FluentMaiApp(
             } else {
                 Log.w(TAG, "No local song catalog cache or bundled fallback available")
             }
+            val localAliasSnapshot = withContext(Dispatchers.IO) {
+                loadLocalAliasCatalog(chartRecords.mapTo(mutableSetOf()) { it.songId })
+            }
+            if (localAliasSnapshot != null) {
+                songAliases = localAliasSnapshot.catalog
+                songAliasSnapshot = localAliasSnapshot
+                Log.i(
+                    TAG,
+                    "Local alias catalog ready: songCount=${localAliasSnapshot.songCount} " +
+                        "aliasCount=${localAliasSnapshot.aliasCount} unmapped=${localAliasSnapshot.unmappedSongIds.size}",
+                )
+            }
             try {
                 val networkStartedAt = SystemClock.elapsedRealtime()
                 Log.i(TAG, "LXNS song catalog background refresh started")
@@ -350,6 +382,25 @@ private fun FluentMaiApp(
                     "LXNS song catalog background refresh failed after " +
                         "${SystemClock.elapsedRealtime() - startedAt}ms: $safeMessage; " +
                         "usingChartCount=${chartRecords.size}",
+                )
+            }
+            try {
+                val aliasSnapshot = withContext(Dispatchers.IO) {
+                    refreshAliasCatalog(chartRecords.mapTo(mutableSetOf()) { it.songId })
+                }
+                songAliases = aliasSnapshot.catalog
+                songAliasSnapshot = aliasSnapshot
+                Log.i(
+                    TAG,
+                    "Community alias refresh completed: songCount=${aliasSnapshot.songCount} " +
+                        "aliasCount=${aliasSnapshot.aliasCount} mapped=${aliasSnapshot.mappedSongCount} " +
+                        "unmapped=${aliasSnapshot.unmappedSongIds.size}",
+                )
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                Log.w(
+                    TAG,
+                    "Community alias refresh failed: $safeMessage; usingAliasCount=${songAliases.aliasCount}",
                 )
             } finally {
                 isChartCatalogLoading = false
@@ -633,13 +684,24 @@ private fun FluentMaiApp(
         }
     }
 
+    val selectedChartIdentity = ChartIdentity.parseStableKey(selectedChartKey)
+    val currentVersionId = remember(chartMajorVersions, chartRecords) {
+        resolveCurrentMaimaiVersion(chartMajorVersions, chartRecords)?.majorVersion?.id
+    }
+    BackHandler(enabled = selectedChartIdentity != null) {
+        selectedChartKey = null
+    }
+
     Scaffold(
         bottomBar = {
             NavigationBar {
                 AppTab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
+                        onClick = {
+                            selectedTab = tab
+                            selectedChartKey = null
+                        },
                         icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
                         label = { Text(text = tab.label) },
                     )
@@ -648,11 +710,36 @@ private fun FluentMaiApp(
         },
     ) { innerPadding ->
         val modifier = Modifier.padding(innerPadding)
-        when (selectedTab) {
+        if (selectedChartIdentity != null) {
+            ChartDetailScreen(
+                identity = selectedChartIdentity,
+                charts = chartRecords,
+                scores = scores,
+                aliases = songAliases,
+                aliasStatus = songAliasSnapshot?.let { snapshot ->
+                    AliasDataStatus(
+                        sourceLabel = when (snapshot.source) {
+                            SongAliasSource.Network -> "社区别名在线刷新"
+                            SongAliasSource.FileCache -> "社区别名本地缓存"
+                        },
+                        fetchedAtEpochMillis = snapshot.fetchedAtEpochMillis,
+                        contentVersion = snapshot.contentVersion,
+                        songCount = snapshot.songCount,
+                        aliasCount = snapshot.aliasCount,
+                        unmappedSongCount = snapshot.unmappedSongIds.size,
+                    )
+                },
+                currentVersionId = currentVersionId,
+                onBack = { selectedChartKey = null },
+                onChartSelected = { selectedChartKey = it.stableKey() },
+                modifier = modifier,
+            )
+        } else when (selectedTab) {
             AppTab.Home -> ScoresScreen(
                 scores = scores,
                 charts = chartRecords,
                 majorVersions = chartMajorVersions,
+                onChartSelected = { selectedChartKey = it.stableKey() },
                 modifier = modifier,
             )
 
@@ -692,8 +779,10 @@ private fun FluentMaiApp(
                 charts = chartRecords,
                 scores = scores,
                 majorVersions = chartMajorVersions,
+                aliases = songAliases,
                 isLoading = isChartCatalogLoading,
                 onRefresh = ::refreshChartRecords,
+                onChartSelected = { selectedChartKey = it.stableKey() },
                 modifier = modifier,
             )
 
@@ -701,6 +790,8 @@ private fun FluentMaiApp(
                 scores = scores,
                 charts = chartRecords,
                 majorVersions = chartMajorVersions,
+                aliases = songAliases,
+                onChartSelected = { selectedChartKey = it.stableKey() },
                 modifier = modifier,
             )
 

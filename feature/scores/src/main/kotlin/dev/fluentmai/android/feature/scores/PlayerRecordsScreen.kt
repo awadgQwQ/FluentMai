@@ -74,6 +74,7 @@ import dev.fluentmai.android.core.model.PlayerChartRecord
 import dev.fluentmai.android.core.model.PlayerRecordSort
 import dev.fluentmai.android.core.model.PlayerRecordStats
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongAliasCatalog
 import dev.fluentmai.android.core.model.SongType
 import dev.fluentmai.android.core.model.VersionAgeFilter
 import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
@@ -84,6 +85,7 @@ fun PlayerRecordsScreen(
     scores: List<ScoreRecord>,
     charts: List<ChartRecord>,
     majorVersions: List<MaimaiMajorVersion>,
+    aliases: SongAliasCatalog = SongAliasCatalog.Empty,
     onChartSelected: (ChartIdentity) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -93,7 +95,7 @@ fun PlayerRecordsScreen(
         resolveCurrentMaimaiVersion(majorVersions, charts)?.majorVersion?.id
     }
     SideEffect {
-        recordsViewModel.submitCatalog(charts, scores, majorVersions, operatingVersionId)
+        recordsViewModel.submitCatalog(charts, scores, majorVersions, operatingVersionId, aliases)
     }
 
     when (state.section) {

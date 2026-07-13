@@ -9,6 +9,8 @@ data class ChartIdentity(
     val songType: SongType,
     val difficulty: Difficulty,
 ) {
+    fun stableKey(): String = "$songId:${songType.name}:${difficulty.name}"
+
     companion object {
         fun from(chart: ChartRecord): ChartIdentity =
             ChartIdentity(chart.songId, chart.songType, chart.difficulty)
@@ -17,6 +19,15 @@ data class ChartIdentity(
             score.songId?.takeIf { it > 0 }?.let {
                 ChartIdentity(it, score.songType, score.difficulty)
             }
+
+        fun parseStableKey(value: String?): ChartIdentity? {
+            val parts = value?.split(':') ?: return null
+            if (parts.size != 3) return null
+            val songId = parts[0].toIntOrNull()?.takeIf { it > 0 } ?: return null
+            val songType = SongType.entries.firstOrNull { it.name == parts[1] } ?: return null
+            val difficulty = Difficulty.entries.firstOrNull { it.name == parts[2] } ?: return null
+            return ChartIdentity(songId, songType, difficulty)
+        }
     }
 }
 
@@ -136,6 +147,32 @@ data class PlayerRecordStats(
     val fullSyncCounts: Map<FullSyncStatus, Int>,
 )
 
+/**
+ * Matches persisted scores to public chart identities without ever using a Room row id.
+ * Title fallback is deliberately limited to a single public identity so same-title songs
+ * cannot silently borrow each other's chart metadata.
+ */
+fun matchChartsForScores(
+    charts: List<ChartRecord>,
+    scores: List<ScoreRecord>,
+): Map<String, ChartRecord> {
+    val chartByIdentity = charts.distinctBy(ChartIdentity::from).associateBy(ChartIdentity::from)
+    val uniqueChartByFallback = charts
+        .groupBy { chart ->
+            ScoreFallbackKey(normalizePlayerRecordText(chart.title), chart.songType, chart.levelIndex)
+        }
+        .mapValues { (_, matches) -> matches.distinctBy(ChartIdentity::from) }
+        .filterValues { it.size == 1 }
+        .mapValues { (_, matches) -> matches.single() }
+    return scores.mapNotNull { score ->
+        val direct = ChartIdentity.from(score)?.let(chartByIdentity::get)
+        val fallback = uniqueChartByFallback[
+            ScoreFallbackKey(normalizePlayerRecordText(score.title), score.songType, score.levelIndex)
+        ]
+        (direct ?: fallback)?.let { score.id to it }
+    }.toMap()
+}
+
 fun buildPlayerRecordCatalog(
     charts: List<ChartRecord>,
     scores: List<ScoreRecord>,
@@ -233,6 +270,7 @@ fun filterPlayerRecords(
     records: List<PlayerChartRecord>,
     filters: PlayerRecordFilters,
     currentVersionId: Int?,
+    aliases: SongAliasCatalog = SongAliasCatalog.Empty,
 ): List<PlayerChartRecord> {
     val query = normalizePlayerRecordText(filters.query)
     val displayLevel = normalizePlayerRecordText(filters.displayLevel)
@@ -244,6 +282,8 @@ fun filterPlayerRecords(
                 record.chart.noteDesigner,
                 record.chart.genre,
                 record.chart.songId.toString(),
+                "${record.chart.songId}-${record.chart.songType.name}-${record.chart.difficulty.name}",
+                *aliases.aliasesFor(record.chart.songId).toTypedArray(),
             ).any { normalizePlayerRecordText(it).contains(query) }
         }
         .filter { filters.versionId == null || it.chart.chartVersion == filters.versionId }

@@ -19,6 +19,7 @@ import dev.fluentmai.android.core.model.PlayerRecordSort
 import dev.fluentmai.android.core.model.PlayerRecordStats
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.model.SongType
+import dev.fluentmai.android.core.model.SongAliasCatalog
 import dev.fluentmai.android.core.model.VersionAgeFilter
 import dev.fluentmai.android.core.model.buildPlayerRecordCatalog
 import dev.fluentmai.android.core.model.calculatePlateProgress
@@ -67,6 +68,7 @@ internal class PlayerRecordsViewModel(
     private var indexedCharts: List<ChartRecord>? = null
     private var indexedScores: List<ScoreRecord>? = null
     private var indexedMajorVersions: List<MaimaiMajorVersion>? = null
+    private var indexedAliases: SongAliasCatalog? = null
     private var generation = 0L
     private var indexJob: Job? = null
     private var queryJob: Job? = null
@@ -76,16 +78,19 @@ internal class PlayerRecordsViewModel(
         scores: List<ScoreRecord>,
         majorVersions: List<MaimaiMajorVersion>,
         operatingVersionId: Int?,
+        aliases: SongAliasCatalog = SongAliasCatalog.Empty,
     ) {
         if (
             charts === indexedCharts &&
             scores === indexedScores &&
             majorVersions === indexedMajorVersions &&
+            aliases === indexedAliases &&
             operatingVersionId == currentVersionId
         ) return
         indexedCharts = charts
         indexedScores = scores
         indexedMajorVersions = majorVersions
+        indexedAliases = aliases
         currentVersionId = operatingVersionId
         val requestGeneration = ++generation
         indexJob?.cancel()
@@ -210,7 +215,7 @@ internal class PlayerRecordsViewModel(
             _uiState.update { it.copy(isWorking = true) }
             if (debounceMillis > 0) delay(debounceMillis)
             val records = withContext(Dispatchers.Default) {
-                filterPlayerRecords(playerCatalog.records, filters, operatingVersion)
+                filterPlayerRecords(playerCatalog.records, filters, operatingVersion, indexedAliases ?: SongAliasCatalog.Empty)
             }
             if (catalog !== playerCatalog || _uiState.value.filters != filters) return@launch
             _uiState.update {

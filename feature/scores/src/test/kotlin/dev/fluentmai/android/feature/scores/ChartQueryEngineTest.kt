@@ -2,7 +2,11 @@ package dev.fluentmai.android.feature.scores
 
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.FullComboStatus
+import dev.fluentmai.android.core.model.FullSyncStatus
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongAliasCatalog
+import dev.fluentmai.android.core.model.SongAliasEntry
 import dev.fluentmai.android.core.model.SongType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -57,6 +61,44 @@ class ChartQueryEngineTest {
 
         assertEquals(2, result.matchingCount)
         assertEquals(listOf(currentHigh, currentLow), result.items.map { it.chart })
+    }
+
+    @Test
+    fun aliasAndCompositeIdentitySearchHandleWidthCaseAndPunctuation() {
+        val target = chart(songId = 834, title = "きゅうくらりん")
+        val engine = ChartQueryEngine.create(
+            charts = listOf(target),
+            scores = emptyList(),
+            aliases = SongAliasCatalog.from(listOf(SongAliasEntry(834, listOf("心跳不止")))),
+        )
+
+        assertEquals(1, engine.query(ChartQueryFilters(searchQuery = " 心 跳・不止！ "), 25_500).matchingCount)
+        assertEquals(1, engine.query(ChartQueryFilters(searchQuery = "８３４-dx-master"), 25_500).matchingCount)
+    }
+
+    @Test
+    fun combinesConstantTypeAchievementComboAndSyncFilters() {
+        val matching = chart(songId = 1, title = "Match", levelValue = 13.7)
+        val low = chart(songId = 2, title = "Low", levelValue = 12.9)
+        val engine = ChartQueryEngine.create(
+            listOf(matching, low),
+            listOf(scoreFor(matching).copy(achievement = 100.0, fc = "ap", fs = "fsd")),
+        )
+
+        val result = engine.query(
+            ChartQueryFilters(
+                constantMin = 13.5,
+                constantMax = 13.9,
+                songType = SongType.DX,
+                achievementMin = 99.5,
+                achievementMax = 100.1,
+                fullCombo = FullComboStatus.AP,
+                fullSync = FullSyncStatus.FSD,
+            ),
+            currentVersion = 25_500,
+        )
+
+        assertEquals(listOf(matching), result.items.map { it.chart })
     }
 
     private fun chart(

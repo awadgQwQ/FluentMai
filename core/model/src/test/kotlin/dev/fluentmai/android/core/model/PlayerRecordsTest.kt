@@ -7,6 +7,26 @@ import org.junit.Test
 
 class PlayerRecordsTest {
     @Test
+    fun stableIdentityKeyRoundTripsWithoutRoomIds() {
+        val identity = ChartIdentity(834, SongType.DX, Difficulty.MASTER)
+
+        assertEquals(identity, ChartIdentity.parseStableKey(identity.stableKey()))
+        assertEquals(null, ChartIdentity.parseStableKey("834:DX:missing"))
+    }
+
+    @Test
+    fun scoreChartMatchingUsesStableIdAndRejectsAmbiguousTitleFallback() {
+        val first = chart(songId = 1, title = "Same")
+        val second = chart(songId = 2, title = "Same")
+        val direct = score(songId = 2, title = "Same", achievement = 100.0).copy(id = "direct")
+        val ambiguous = score(songId = null, title = "Same", achievement = 100.0).copy(id = "ambiguous")
+
+        val matches = matchChartsForScores(listOf(first, second), listOf(direct, ambiguous))
+
+        assertEquals(second, matches["direct"])
+        assertFalse(matches.containsKey("ambiguous"))
+    }
+    @Test
     fun `catalog uses stable identity and best score`() {
         val chart = chart(songId = 123, difficulty = Difficulty.MASTER)
         val low = score(songId = 123, achievement = 99.0)
