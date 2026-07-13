@@ -81,6 +81,7 @@ import dev.fluentmai.android.core.model.buildMaimaiBestSet
 import dev.fluentmai.android.core.model.calculateDxRating
 import dev.fluentmai.android.core.model.matchChartsForScores
 import dev.fluentmai.android.core.model.maimaiRatedScoreComparator
+import dev.fluentmai.android.core.model.maimaiVersionNameFor
 import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
 import java.text.Normalizer
 import java.util.Locale
@@ -1249,34 +1250,9 @@ private fun SongType.displayName(): String =
 private fun ChartRecord.displayVersionName(): String =
     chartVersionName
         ?: songVersionName
-        ?: versionNameFor(chartVersion)
-        ?: versionNameFor(songVersion)
+        ?: maimaiVersionNameFor(chartVersion)
+        ?: maimaiVersionNameFor(songVersion)
         ?: "--"
-
-private fun versionNameFor(version: Int): String? =
-    when {
-        version >= 25500 -> "舞萌DX 2026"
-        version >= 25000 -> "舞萌DX 2025"
-        version >= 24000 -> "舞萌DX 2024"
-        version >= 23000 -> "舞萌DX 2023"
-        version >= 22000 -> "舞萌DX 2022"
-        version >= 21000 -> "舞萌DX 2021"
-        version >= 20000 -> "舞萌DX"
-        version >= 19900 -> "FiNALE"
-        version >= 19500 -> "MiLK PLUS"
-        version >= 19000 -> "MiLK"
-        version >= 18500 -> "MURASAKi PLUS"
-        version >= 18000 -> "MURASAKi"
-        version >= 17000 -> "PiNK PLUS"
-        version >= 16000 -> "PiNK"
-        version >= 15000 -> "ORANGE PLUS"
-        version >= 14000 -> "ORANGE"
-        version >= 13000 -> "GreeN PLUS"
-        version >= 12000 -> "GreeN"
-        version >= 11000 -> "maimai PLUS"
-        version >= 10000 -> "maimai"
-        else -> null
-    }
 
 private fun Double.formatConst(): String =
     String.format(Locale.US, "%.1f", this)

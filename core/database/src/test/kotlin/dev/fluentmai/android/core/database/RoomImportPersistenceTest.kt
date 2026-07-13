@@ -12,6 +12,7 @@ import dev.fluentmai.android.core.model.SongType
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -251,5 +252,41 @@ class RoomImportPersistenceTest {
             assertTrue(it.moveToFirst())
             assertEquals(1, it.getInt(0))
         }
+    }
+
+    @Test
+    fun ratingHistoryMarksManualRowsAndOnlyMutatesManualRows() = runTest {
+        val repository = FluentMaiRepository(database)
+        val manual = repository.addManualRating(
+            recordedAtEpochMillis = 1_700_000_000_000,
+            rating = 14_000,
+            note = "  old record  ",
+            nowEpochMillis = 1_800_000_000_000,
+        )
+        val automaticInserted = repository.recordAutomaticRating(
+            recordedAtEpochMillis = 1_900_000_000_000,
+            rating = 14_100,
+            nowEpochMillis = 1_900_000_000_000,
+        )
+
+        assertTrue(manual.isManual)
+        assertEquals("old record", manual.note)
+        assertTrue(automaticInserted)
+        assertTrue(repository.updateManualRating(manual.id, 1_700_000_100_000, 14_050, "edited"))
+        val automatic = repository.ratingHistory().single { !it.isManual }
+        assertFalse(repository.updateManualRating(automatic.id, 2_000_000_000_000, 1, null))
+        assertFalse(repository.deleteManualRating(automatic.id))
+        assertTrue(repository.deleteManualRating(manual.id))
+        assertEquals(listOf(14_100), repository.ratingHistory().map { it.rating })
+    }
+
+    @Test
+    fun unchangedAutomaticRatingIsNotRepeated() = runTest {
+        val repository = FluentMaiRepository(database)
+
+        assertTrue(repository.recordAutomaticRating(1_700_000_000_000, 14_655, 1_700_000_000_000))
+        assertFalse(repository.recordAutomaticRating(1_700_000_100_000, 14_655, 1_700_000_100_000))
+        assertTrue(repository.recordAutomaticRating(1_700_000_200_000, 14_656, 1_700_000_200_000))
+        assertEquals(listOf(14_655, 14_656), repository.ratingHistory().map { it.rating })
     }
 }

@@ -19,10 +19,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -58,9 +58,13 @@ import dev.fluentmai.android.core.model.ChartIdentity
 import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.ImportResult
 import dev.fluentmai.android.core.model.MaimaiMajorVersion
+import dev.fluentmai.android.core.model.MaimaiRatedScore
 import dev.fluentmai.android.core.model.QuarantineRecord
+import dev.fluentmai.android.core.model.RatingHistoryEntry
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.model.SongAliasCatalog
+import dev.fluentmai.android.core.model.buildMaimaiBestSet
+import dev.fluentmai.android.core.model.buildPlayerRecordCatalog
 import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
 import dev.fluentmai.android.core.upload.MaimaiScoreUploader
@@ -73,6 +77,7 @@ import dev.fluentmai.android.feature.scores.AliasDataStatus
 import dev.fluentmai.android.feature.scores.PlayerRecordsScreen
 import dev.fluentmai.android.feature.scores.ScoresScreen
 import dev.fluentmai.android.feature.settings.SettingsScreen
+import dev.fluentmai.android.feature.tools.ToolboxScreen
 import dev.fluentmai.android.vpn.core.LocalVpnService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -275,6 +280,7 @@ private fun FluentMaiApp(
     var isRatingReadyLogged by remember { mutableStateOf(false) }
     var quarantineCount by remember { mutableStateOf(0) }
     var quarantineRecords by remember { mutableStateOf<List<QuarantineRecord>>(emptyList()) }
+    var ratingHistory by remember { mutableStateOf<List<RatingHistoryEntry>>(emptyList()) }
     var lastImport by remember { mutableStateOf<ImportBatch?>(null) }
     var lastRealResult by remember { mutableStateOf<RealWahlapImportResult?>(null) }
     var lastImportError by remember { mutableStateOf<String?>(null) }
@@ -291,6 +297,9 @@ private fun FluentMaiApp(
     var isPreparingHookLink by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
+    var isSettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var automaticRatingRequestId by remember { mutableStateOf(0) }
+    var processedAutomaticRatingRequestId by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -308,6 +317,7 @@ private fun FluentMaiApp(
         scores = repository.scores()
         quarantineCount = repository.quarantineCount()
         quarantineRecords = repository.quarantineRecords()
+        ratingHistory = repository.ratingHistory()
         lastImport = repository.latestImportBatch()
         isScoreStateLoaded = true
         Log.i(
@@ -554,7 +564,8 @@ private fun FluentMaiApp(
                     runRealImport(capturedAuthUrl, ::stopCaptureAfterLogin)
                 }
                 lastRealResult = result
-                importStatus = if (result.failedDifficultyCount == 0 && result.fetchedDifficultyCount > 0) {
+                val importSucceeded = result.failedDifficultyCount == 0 && result.fetchedDifficultyCount > 0
+                importStatus = if (importSucceeded) {
                     ImportRunStatus.Success
                 } else {
                     ImportRunStatus.Failed
@@ -563,6 +574,7 @@ private fun FluentMaiApp(
                     ?.failures
                     ?.joinToString("; ") { "${it.difficulty.name}: ${it.message}" }
                 refreshState()
+                if (importSucceeded) automaticRatingRequestId += 1
                 Log.i(TAG, "real Wahlap import completed: ${result.safeSummary()}")
             } catch (error: Exception) {
                 val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
@@ -596,7 +608,8 @@ private fun FluentMaiApp(
                 WahlapHookBridge.setStatus("正在使用 Wahlap Cookie 导入本地成绩。")
                 val result = withContext(Dispatchers.IO) { runCookieImport(capturedInput) }
                 lastRealResult = result
-                importStatus = if (result.failedDifficultyCount == 0 && result.fetchedDifficultyCount > 0) {
+                val importSucceeded = result.failedDifficultyCount == 0 && result.fetchedDifficultyCount > 0
+                importStatus = if (importSucceeded) {
                     ImportRunStatus.Success
                 } else {
                     ImportRunStatus.Failed
@@ -605,6 +618,7 @@ private fun FluentMaiApp(
                     ?.failures
                     ?.joinToString("; ") { "${it.difficulty.name}: ${it.message}" }
                 refreshState()
+                if (importSucceeded) automaticRatingRequestId += 1
                 Log.i(TAG, "manual Wahlap import completed: ${result.safeSummary()}")
             } catch (error: Exception) {
                 val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
@@ -684,12 +698,44 @@ private fun FluentMaiApp(
         }
     }
 
+    LaunchedEffect(automaticRatingRequestId, scores, chartRecords, chartMajorVersions) {
+        if (automaticRatingRequestId <= 0 || automaticRatingRequestId == processedAutomaticRatingRequestId) {
+            return@LaunchedEffect
+        }
+        if (scores.isEmpty() || chartRecords.isEmpty()) return@LaunchedEffect
+        val rating = withContext(Dispatchers.Default) {
+            val currentVersion = resolveCurrentMaimaiVersion(chartMajorVersions, chartRecords)
+                ?: return@withContext null
+            val catalog = buildPlayerRecordCatalog(chartRecords, scores)
+            val ratedScores = catalog.records.mapNotNull { record ->
+                record.score?.let { score ->
+                    MaimaiRatedScore(score = score, chart = record.chart, rating = record.rating)
+                }
+            }
+            buildMaimaiBestSet(ratedScores, currentVersion).rating.takeIf { it > 0 }
+        } ?: return@LaunchedEffect
+        val inserted = withContext(Dispatchers.IO) {
+            repository.recordAutomaticRating(
+                recordedAtEpochMillis = System.currentTimeMillis(),
+                rating = rating,
+            )
+        }
+        ratingHistory = withContext(Dispatchers.IO) { repository.ratingHistory() }
+        processedAutomaticRatingRequestId = automaticRatingRequestId
+        Log.i(TAG, "Rating history automatic snapshot completed: inserted=$inserted rating=$rating")
+    }
+
     val selectedChartIdentity = ChartIdentity.parseStableKey(selectedChartKey)
     val currentVersionId = remember(chartMajorVersions, chartRecords) {
         resolveCurrentMaimaiVersion(chartMajorVersions, chartRecords)?.majorVersion?.id
     }
     BackHandler(enabled = selectedChartIdentity != null) {
         selectedChartKey = null
+    }
+    BackHandler(
+        enabled = selectedChartIdentity == null && selectedTab == AppTab.Tools && isSettingsOpen,
+    ) {
+        isSettingsOpen = false
     }
 
     Scaffold(
@@ -701,6 +747,7 @@ private fun FluentMaiApp(
                         onClick = {
                             selectedTab = tab
                             selectedChartKey = null
+                            if (tab == AppTab.Tools) isSettingsOpen = false
                         },
                         icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
                         label = { Text(text = tab.label) },
@@ -795,12 +842,44 @@ private fun FluentMaiApp(
                 modifier = modifier,
             )
 
-            AppTab.Settings -> SettingsScreen(
-                appVersion = APP_VERSION,
-                quarantineCount = quarantineCount,
-                records = quarantineRecords,
-                modifier = modifier,
-            )
+            AppTab.Tools -> if (isSettingsOpen) {
+                SettingsScreen(
+                    appVersion = APP_VERSION,
+                    quarantineCount = quarantineCount,
+                    records = quarantineRecords,
+                    onBack = { isSettingsOpen = false },
+                    modifier = modifier,
+                )
+            } else {
+                ToolboxScreen(
+                    majorVersions = chartMajorVersions,
+                    ratingHistory = ratingHistory,
+                    onAddManualRating = { recordedAt, rating, note ->
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                repository.addManualRating(recordedAt, rating, note)
+                            }
+                            ratingHistory = withContext(Dispatchers.IO) { repository.ratingHistory() }
+                        }
+                    },
+                    onUpdateManualRating = { id, recordedAt, rating, note ->
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                repository.updateManualRating(id, recordedAt, rating, note)
+                            }
+                            ratingHistory = withContext(Dispatchers.IO) { repository.ratingHistory() }
+                        }
+                    },
+                    onDeleteManualRating = { id ->
+                        scope.launch {
+                            withContext(Dispatchers.IO) { repository.deleteManualRating(id) }
+                            ratingHistory = withContext(Dispatchers.IO) { repository.ratingHistory() }
+                        }
+                    },
+                    onOpenSettings = { isSettingsOpen = true },
+                    modifier = modifier,
+                )
+            }
         }
     }
 }
@@ -883,7 +962,7 @@ private enum class AppTab(
     Records("记录", Icons.Filled.Assessment),
     Import("导入", Icons.Filled.PlayArrow),
     Charts("谱面", Icons.Filled.Search),
-    Settings("设置", Icons.Filled.Settings),
+    Tools("工具", Icons.Filled.Build),
 }
 
 private enum class ImportRunStatus(val label: String) {

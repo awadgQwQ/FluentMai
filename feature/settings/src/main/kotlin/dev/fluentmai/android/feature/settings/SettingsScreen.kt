@@ -9,10 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +36,7 @@ fun SettingsScreen(
     appVersion: String,
     quarantineCount: Int,
     records: List<QuarantineRecord>,
+    onBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var showQuarantine by remember { mutableStateOf(false) }
@@ -42,7 +47,14 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text(text = "设置", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                onBack?.let { callback ->
+                    IconButton(onClick = callback) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回工具箱")
+                    }
+                }
+                Text(text = "设置", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            }
         }
         item {
             SettingSection(

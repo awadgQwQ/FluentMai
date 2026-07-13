@@ -43,6 +43,7 @@ import coil.request.ImageRequest
 import dev.fluentmai.android.core.model.ChartAvailability
 import dev.fluentmai.android.core.model.ChartIdentity
 import dev.fluentmai.android.core.model.ChartRecord
+import dev.fluentmai.android.core.model.maimaiVersionNameFor
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.model.SongAliasCatalog
@@ -331,25 +332,4 @@ private fun ChartAvailability.displayName(): String =
 private fun Long.asLocalTime(): String =
     takeIf { it > 0L }?.let { DateFormat.getDateTimeInstance().format(Date(it)) } ?: "未知"
 
-private fun Int.detailVersionName(): String =
-    when {
-        this >= 25500 -> "舞萌DX 2026"
-        this >= 25000 -> "舞萌DX 2025"
-        this >= 24000 -> "舞萌DX 2024"
-        this >= 23000 -> "舞萌DX 2023"
-        this >= 22000 -> "舞萌DX 2022"
-        this >= 21000 -> "舞萌DX 2021"
-        this >= 20000 -> "舞萌DX"
-        this >= 19900 -> "FiNALE"
-        this >= 19000 -> "MiLK"
-        this >= 18000 -> "MURASAKi"
-        this >= 17000 -> "PiNK PLUS"
-        this >= 16000 -> "PiNK"
-        this >= 15000 -> "ORANGE PLUS"
-        this >= 14000 -> "ORANGE"
-        this >= 13000 -> "GreeN PLUS"
-        this >= 12000 -> "GreeN"
-        this >= 11000 -> "maimai PLUS"
-        this >= 10000 -> "maimai"
-        else -> toString()
-    }
+private fun Int.detailVersionName(): String = maimaiVersionNameFor(this) ?: toString()

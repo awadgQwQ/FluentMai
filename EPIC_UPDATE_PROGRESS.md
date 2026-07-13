@@ -7,7 +7,7 @@
 - 阶段一：现状审计与性能基线已完成。
 - 任务开始前的工作树与审计记录均已保存为独立 checkpoint。
 - P0 版本语义、B15 正确性、曲库缓存保护、隐私边界、谱面性能与页面状态均已实现并通过 JVM、构建与真机覆盖安装验证。
-- Android P1 玩家记录、数据驱动牌子进度、社区别名搜索、稳定谱面身份、完整筛选与统一详情页均已完成并通过 JVM、构建与真机验证；下一步进入工具箱与 Rating Trend。
+- Android P1 玩家记录、数据驱动牌子进度、社区别名搜索、稳定谱面身份、完整筛选、统一详情页、工具箱与 Rating Trend 均已完成并通过 JVM、构建与真机验证；下一步进入可解释 Rating 推荐。
 
 ## 任务约束
 
@@ -485,6 +485,32 @@ Debug APK：
   - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p2_chart_filters.png`
   - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p2_chart_detail.png`
 
+## P1：工具箱与 Rating Trend
+
+实现：
+
+- 新增独立 `feature:tools`，将底栏设置入口调整为“工具”；设置页保留在工具箱右上角，并支持界面返回和系统返回回到工具箱。
+- 在 `core:model` 集中实现单曲 DX Rating 与谱面失分/达成率/目标容错计算。单曲 Rating 使用既有系数表、100.5% 封顶与向下取整；谱面计算使用 Tap/Touch=1、Hold=2、Slide=3、Break=5 的基础权重和 BREAK 额外 1% 判定段。公式边界、无效输入、BREAK 2550/2500 Perfect 与目标容错均有 JVM 回归测试。
+- 工具箱提供 Rating、失分/容错、版本、Kaleid×Scope 与趋势五个区段。版本资料优先使用已校验运行时目录，并在 `core:model` 保留集中维护的离线版本表；同时修复 18500 被错误显示为 MURASAKi 而非 MURASAKi PLUS 的旧映射。
+- Kaleid×Scope 建立可替换 model/repository/UI 边界。当前官方页面没有可审计、可稳定更新的结构化门曲与逐门条件，因此明确显示“数据源待接入”，没有硬编码或伪造门曲。
+- Room schema 从 5 显式迁移到 6，只新增 `rating_history` 表和时间/来源索引；没有 destructive migration。历史点区分自动导入与手动补录，手动记录支持新增、编辑、确认删除，自动记录不能通过界面编辑或删除。
+- 自动历史点只在一次 Wahlap 导入全部成功且真实 B35/B15 已重新计算后写入；启动、升级、失败导入和现有分数不会反推或伪造过去时间点。时间线最后一个 Rating 未变化时跳过重复自动点。
+- 趋势图按真实时间比例绘制，支持近 1 月、近 3 月和全部；空历史、来源、日期时间、手动标记与备注均有明确状态。数据来源与公式审计记录在 `docs/TOOLBOX_DATA.md`。
+
+验证：
+
+- `.\gradlew.bat test :app:assembleDebug --console=plain`：`BUILD SUCCESSFUL`；39 suites / 191 tests / 0 failures / 0 errors / 0 skipped；`git diff --check` 通过。
+- Debug APK：33,747,469 bytes；SHA-256 `B0EF4FE131B1CE9EB77450E4C0ED21BF215320E983A65A0FF4A16AF872A97E59`。
+- 首次执行真实 v5→v6 迁移的 `adb install -r` 覆盖安装成功，冷启动 `TotalTime=703ms`；最终 checkpoint APK 再次覆盖安装并冷启动 `TotalTime=661ms`。全程未卸载、未清除数据，首次安装时间仍为 `2026-06-29 02:36:58`，日志没有 fatal exception 或 Room migration error。
+- 真机输入定数 `13.5`、达成率 `100.6217%` 得到单曲 Rating `303`、SSS+、系数 `22.4`，并明确显示按 `100.5000%` 封顶；设置页可进入并通过系统返回回到工具箱。
+- 真机完成手动趋势记录 `14655` → 编辑为 `14656` → 确认删除的完整闭环，随后空历史状态恢复；新表最终为 0 行，证明冷启动和升级没有生成虚假历史。
+- SQLite `integrity_check=ok`、`user_version=6`。既有成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义 SHA-256 仍分别为 `22cc15e4fbcb25b12c4c3af7de962795cce41ce6a7f49e8d32c29ad8e484ea21`、`cf8d21c506aabede62b6fed1a10a2e888bdf39dd8acf7de5997b2a23924e0799`、`b13da25b612c298edc0a6393608890f99ced6e2275d1847c63dbfff1d36c76cc`、`4c7a35fe6d9060b61f71d13f45922a657445e1fb78a721b4fa6fa4564ab8919c`，与 v5 基线逐字节一致。
+- 旧 Token 文件元数据仍为 `341|1783304211`；7 个历史 HTML 文件的元数据 SHA-256 仍为 `EBB86FFAC0DCB84CF6693C6E8B9A21E9F5C843C4001E4373F208A5C9C3C5E7D4`。没有读取 Token、Cookie 或 HTML 内容，临时数据库副本已删除。
+- 界面证据：
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p3_toolbox_rating.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p3_toolbox_rating_calculated.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p3_rating_trend.png`
+
 ## Checkpoint commits
 
 - `2670892c6ec309d7f628660072bc9dba67980ff8` — `chore: checkpoint pre-epic working tree`
@@ -511,6 +537,10 @@ Debug APK：
   - 建立稳定谱面身份、玩家记录领域目录、完整成绩筛选与数据驱动牌子规则；
   - 同名歧义成绩保持未映射，牌子在数据不足时不宣布完成；
   - checkpoint 当时 167 项测试通过，真机 1,619 条成绩与全部导入数据语义指纹保持不变。
+- `2b18d6308e66b404cf67b3a26e551429ed94109c` — `feat: expand chart search and chart detail`
+  - 接入双源社区别名、稳定身份扩展搜索、组合筛选与统一谱面详情；
+  - 上线状态与失分数据不足时明确显示未知，不用标题或最大版本猜测；
+  - checkpoint 当时 179 项测试通过，真机社区别名、详情返回与全部既有数据指纹验证通过。
 
 ## 最终结果
 
