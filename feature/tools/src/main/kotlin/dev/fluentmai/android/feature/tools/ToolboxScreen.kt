@@ -2,6 +2,7 @@ package dev.fluentmai.android.feature.tools
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -82,11 +84,15 @@ fun ToolboxScreen(
     var sectionName by rememberSaveable { mutableStateOf(ToolSection.RATING.name) }
     val section = ToolSection.entries.firstOrNull { it.name == sectionName } ?: ToolSection.RATING
 
-    LazyColumn(
+    Box(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentAlignment = Alignment.TopCenter,
     ) {
+        LazyColumn(
+            modifier = Modifier.widthIn(max = 1000.dp).fillMaxSize(),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -116,8 +122,8 @@ fun ToolboxScreen(
                 }
             }
         }
-        item {
-            when (section) {
+            item {
+                when (section) {
                 ToolSection.RATING -> RatingCalculator()
                 ToolSection.ACHIEVEMENT -> AchievementCalculator()
                 ToolSection.VERSIONS -> VersionReference(majorVersions)
@@ -128,6 +134,7 @@ fun ToolboxScreen(
                     onUpdate = onUpdateManualRating,
                     onDelete = onDeleteManualRating,
                 )
+                }
             }
         }
     }

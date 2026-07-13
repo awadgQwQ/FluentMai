@@ -536,6 +536,33 @@ Debug APK：
 - 界面证据：
   - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p4_rating_recommendations.png`
 
+## P1：Android 平板、横屏与可调整窗口
+
+实现：
+
+- 根导航改为单一响应式 Scaffold：窗口宽度低于 600dp 使用 Bottom Navigation，达到 600dp 后切换 Navigation Rail；Tab 切换、详情返回与设置返回继续复用同一状态和页面，不复制两套业务界面。
+- 600dp 断点被提取为纯函数，并锁定 599 / 600 / 840dp 边界测试；根 Scaffold 同时提供 411×914 手机竖屏、914×411 手机横屏和 840×900 展开平板 Compose Preview。
+- 成绩、谱面查询、玩家记录、牌子进度、推分建议和谱面详情继续使用 `GridCells.Adaptive(320/340.dp)`；宽屏自动形成多列，窄屏仍保持手机单列。筛选区继续使用可滚动行或全宽输入，不压缩字号。
+- 导入、工具箱和设置属于长文本/表单页面，在超宽窗口内居中并限制到 1000dp 阅读宽度；普通手机约束下仍占满可用宽度。
+
+验证：
+
+- `\.\gradlew.bat test :app:assembleDebug --console=plain`：`BUILD SUCCESSFUL`；44 suites / 203 tests / 0 failures / 0 errors / 0 skipped；`git diff --check` 通过，仅保留既有 `LocalVpnService` 过时 API 编译提示。
+- Debug APK：33,747,469 bytes；SHA-256 `A0A8B7AE9A263D7ED85DC3808739CEE6CFC573CA565DB209C1D9CBD1F6A3A597`。
+- 最终 APK 对真机 serial `2923ae26` 执行 `adb install -r` 覆盖安装成功并冷启动 `TotalTime=783ms`；以 1080×2400 / 420dpi 验证 411dp 手机竖屏，以系统 WindowManager 锁定 90° 验证 914dp 手机横屏。横屏侧栏、记录统计、推分筛选、双列建议卡均无重叠或横向溢出。
+- 使用可逆 WindowManager 尺寸/密度覆盖验证约 617dp 中等平板和约 864dp 展开平板；展开平板成绩卡自动变为双列。验证结束后逐项恢复为原始 1080×2400 / 420dpi / 锁定竖屏，首次安装时间仍为 `2026-06-29 02:36:58`。
+- 本机原先没有 Android Emulator 或 system image；为完成验收，新增独立 `FluentMai_API_34_Tablet` AVD，并在全新空数据的 API 34 Medium Tablet（2560×1600 / 320dpi，逻辑宽度 1280dp）安装同一 APK。冷启动 `TotalTime=4030ms`，本地曲库与谱面结果均为 5,360，谱面卡稳定形成三列，日志无应用 fatal 或 Room 错误；截图后已关闭模拟器，真机仍是唯一在线设备。
+- SQLite `integrity_check=ok`、`user_version=6`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5 的四组规范化语义 SHA-256 与基线逐字节一致，`rating_history` 仍为 0 行，临时数据库副本已删除。
+- 界面证据：
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_phone_portrait.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_phone_landscape_real.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_phone_landscape_final.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_landscape_recommendations.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_landscape_recommendation_grid.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_tablet_expanded.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_emulator_tablet.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_emulator_tablet_charts_ready.png`
+
 ## Checkpoint commits
 
 - `2670892c6ec309d7f628660072bc9dba67980ff8` — `chore: checkpoint pre-epic working tree`
@@ -570,6 +597,10 @@ Debug APK：
   - 集中实现 Rating/失分公式、版本资料与 Kaleid×Scope 数据边界；
   - Room v6 新增真实时间轴，自动点只连接完整成功导入，手动点支持新增/编辑/删除；
   - checkpoint 当时 191 项测试通过，真机 v5→v6 迁移和手动 CRUD 后全部既有数据指纹不变。
+- `6edc62d778be9bac6bb2eb3f2688daf63db47164` — `feat: add explainable rating recommendations`
+  - 以确定性 B35/B15 重算实现可解释推分、目标/范围/版本/不想练筛选和真实 B50 增量；
+  - 推荐状态进入 `SavedStateHandle`，卡片复用统一谱面详情且返回后保留推荐区段；
+  - checkpoint 当时 199 项测试通过，真机目标总分、排除恢复、详情返回和全部既有数据指纹验证通过。
 
 ## 最终结果
 

@@ -1,12 +1,14 @@
 package dev.fluentmai.android.feature.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,11 +43,15 @@ fun SettingsScreen(
 ) {
     var showQuarantine by remember { mutableStateOf(false) }
 
-    LazyColumn(
+    Box(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentAlignment = Alignment.TopCenter,
     ) {
+        LazyColumn(
+            modifier = Modifier.widthIn(max = 1000.dp).fillMaxSize(),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 onBack?.let { callback ->
@@ -89,8 +95,9 @@ fun SettingsScreen(
                 secondary = "Token 不写入本地设置，新的原始 HTML 不写入文件或成绩库；日志和状态消息会隐藏 Cookie、完整授权 URL 与输入内容。",
             )
         }
-        item {
-            AboutSection(appVersion = appVersion)
+            item {
+                AboutSection(appVersion = appVersion)
+            }
         }
     }
 }
