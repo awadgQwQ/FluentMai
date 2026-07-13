@@ -5,8 +5,9 @@
 ## 当前阶段
 
 - 阶段一：现状审计与性能基线已完成。
-- 本任务尚未修改产品源代码；任务开始前的工作树已保存为独立 pre-epic checkpoint。
-- 即将进入 P0：版本语义/B15 正确性、隐私边界、曲库缓存保护、谱面性能与页面状态。
+- 任务开始前的工作树与审计记录均已保存为独立 checkpoint。
+- P0 版本语义、B15 正确性与曲库缓存保护已实现并通过 JVM、构建与真机覆盖安装验证，正在保存稳定 checkpoint。
+- 下一步继续 P0：隐私边界、谱面性能与页面状态。
 
 ## 任务约束
 
@@ -354,7 +355,33 @@ Debug APK：
 - `EPIC_UPDATE_PROGRESS.md` 未包含在该 pre-epic commit 中；
 - 后续仍遵守不 push、不卸载、不清除应用数据、不破坏成绩与导入流程的原始约束。
 
-接下来由首个 P0 checkpoint 停止新增 Token/HTML 持久化、补齐保护性测试并保持导入与上传行为不退化；不会删除设备上已经存在的私密缓存。
+既有私密缓存不会被删除；后续 checkpoint 只停止新增 Token/HTML 持久化，并补齐保护性测试、保持导入与上传行为不退化。
+
+## P0：版本语义、B15 与曲库缓存保护
+
+实现：
+
+- 在 `core:model` 新增明确的主要版本模型和解析规则：曲库主要版本表优先，只有带名称的曲目/谱面元数据可作为降级来源，禁止再以原始最大版本号推断当前运营大版本。
+- B35/B15 分桶、排序和 DX Rating 计算已迁入纯领域层。低于当前主要版本进入 B35，精确等于当前主要版本进入 B15；高于当前版本、缺失版本或当前版本不可解析的记录均不进入两个榜单。
+- 首页与谱面“当前版本”筛选共同使用同一解析结果，未来内容批次不会再把 B15 置空。
+- 曲库网络刷新在覆盖有效缓存前校验曲目、谱面、主要版本表完整性，拒绝低于现有规模 80% 的明显截断响应和版本回退，并通过同目录临时文件原子替换缓存。
+- 新增版本优先级、命名元数据降级、未来批次隔离、35/15 上限、空/不完整/部分响应保护与版本回退测试。
+
+验证：
+
+- `\.\gradlew.bat test :app:assembleDebug --console=plain`：`BUILD SUCCESSFUL`。
+- Gradle XML：28 suites / 145 tests / 0 failures / 0 errors / 0 skipped。
+- `git diff --check`：通过；仅保留原有 `LocalVpnService` 过时 API 编译提示。
+- Debug APK：28,437,980 bytes；SHA-256 `F15709B2D303E7AA49C5C83765F3953CD4A7A81385E712281E585FE3EEFEE197`。
+- 对 serial `2923ae26` 执行 `adb install -r` 覆盖安装成功；没有卸载或清除数据，首次安装时间仍为 `2026-06-29 02:36:58`。
+- 真机冷启动成功，`TotalTime=864ms`；日志无 fatal exception，Rating ready 为 1,265ms，本地 1,619 条成绩全部匹配。
+- 首页 Rating 从基线 `10435` 恢复为 `14655`；B35 为 35 张，当前版本 B15 为 15 张。界面证据：`C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p0_b15_fixed.png`。
+- 覆盖安装并启动前后，在强制停止应用后以相同的主键顺序与 JSON-lines 规范化方法计算语义指纹；四组数据数量和 SHA-256 均逐字节一致：
+  - `score_records`：1,619 / `22cc15e4fbcb25b12c4c3af7de962795cce41ce6a7f49e8d32c29ad8e484ea21`
+  - `quarantine_records`：9,983 / `cf8d21c506aabede62b6fed1a10a2e888bdf39dd8acf7de5997b2a23924e0799`
+  - `import_batches`：29 / `b13da25b612c298edc0a6393608890f99ced6e2275d1847c63dbfff1d36c76cc`
+  - `wahlap_score_pages`：5 / `4c7a35fe6d9060b61f71d13f45922a657445e1fb78a721b4fa6fa4564ab8919c`
+- SQLite `integrity_check=ok`、`user_version=5`；验证未输出曲名、成绩明细、HTML、Token 或 Cookie 内容。
 
 ## Checkpoint commits
 
@@ -363,6 +390,9 @@ Debug APK：
   - 凭证扫描通过；
   - checkpoint 前 134 项测试通过且 Debug APK 构建成功；
   - 未包含本进度文件。
+- `d68dd88ae39068b8031729bff5b44901c4750c02` — `docs: record epic audit baseline`
+  - 保存仓库、架构、测试、ADB、真机数据、性能、版本来源、隐私与参考截图审计；
+  - 记录方案 1 已获授权并解除任务开始时的高风险阻塞。
 
 ## 最终结果
 

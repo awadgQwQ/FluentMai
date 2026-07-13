@@ -3,6 +3,7 @@ package dev.fluentmai.android.core.importer
 import dev.fluentmai.android.core.model.ChartNotes
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.MaimaiMajorVersion
 import dev.fluentmai.android.core.model.SongType
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,6 +12,7 @@ import java.text.Normalizer
 class MaimaiSongCatalog private constructor(
     private val songsByNormalizedTitle: Map<String, SongMetadata>,
     private val charts: List<ChartRecord>,
+    private val majorVersions: List<MaimaiMajorVersion>,
 ) {
     fun idForTitle(title: String): Int? =
         songsByNormalizedTitle[normalizeTitle(title)]?.id
@@ -55,15 +57,18 @@ class MaimaiSongCatalog private constructor(
 
     fun charts(): List<ChartRecord> = charts
 
+    fun majorVersions(): List<MaimaiMajorVersion> = majorVersions
+
     fun songCount(): Int = songsByNormalizedTitle.size
 
     companion object {
-        val Empty = MaimaiSongCatalog(emptyMap(), emptyList())
+        val Empty = MaimaiSongCatalog(emptyMap(), emptyList(), emptyList())
 
         fun fromLxnsSongListJson(json: String): MaimaiSongCatalog {
             val root = JSONObject(json)
             val songs = root.optJSONArray("songs") ?: return Empty
-            val versionNames = parseVersionNames(root.optJSONArray("versions"))
+            val majorVersions = parseMajorVersions(root.optJSONArray("versions"))
+            val versionNames = majorVersions.associate { it.id to it.name }
             val parsedSongs = linkedMapOf<String, SongMetadata>()
             val parsedCharts = mutableListOf<ChartRecord>()
             for (index in 0 until songs.length()) {
@@ -119,21 +124,21 @@ class MaimaiSongCatalog private constructor(
                     )
                 }
             }
-            return MaimaiSongCatalog(parsedSongs, parsedCharts)
+            return MaimaiSongCatalog(parsedSongs, parsedCharts, majorVersions)
         }
 
-        private fun parseVersionNames(versions: JSONArray?): Map<Int, String> {
-            if (versions == null) return emptyMap()
-            val parsed = linkedMapOf<Int, String>()
+        private fun parseMajorVersions(versions: JSONArray?): List<MaimaiMajorVersion> {
+            if (versions == null) return emptyList()
+            val parsed = linkedMapOf<Int, MaimaiMajorVersion>()
             for (index in 0 until versions.length()) {
                 val version = versions.optJSONObject(index) ?: continue
                 val versionNumber = version.optInt("version", 0)
                 val title = version.optString("title").takeIf { it.isNotBlank() }
                 if (versionNumber > 0 && title != null) {
-                    parsed[versionNumber] = title
+                    parsed[versionNumber] = MaimaiMajorVersion(versionNumber, title.trim())
                 }
             }
-            return parsed
+            return parsed.values.sortedBy { it.id }
         }
 
         private fun parseCharts(

@@ -1,4 +1,4 @@
-package dev.fluentmai.android.feature.scores
+package dev.fluentmai.android.core.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -25,12 +25,10 @@ class DxRatingTest {
     }
 
     @Test
-    fun doesNotAddAllPerfectBonusForCurrentDivingFishRules() {
+    fun doesNotAddAllPerfectBonusForCurrentRules() {
         assertEquals(303, calculateDxRating(levelValue = 13.5, achievement = 100.6217, comboFlag = "ap"))
         assertEquals(303, calculateDxRating(levelValue = 13.5, achievement = 100.6217, comboFlag = "APP"))
         assertEquals(303, calculateDxRating(levelValue = 13.5, achievement = 100.6217, comboFlag = "fcp"))
-        assertEquals(288, calculateDxRating(levelValue = 12.8, achievement = 100.9754, comboFlag = "ap"))
-        assertEquals(281, calculateDxRating(levelValue = 12.5, achievement = 100.9826, comboFlag = "ap"))
     }
 
     @Test

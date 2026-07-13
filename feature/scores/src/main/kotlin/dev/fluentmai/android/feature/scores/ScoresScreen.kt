@@ -62,8 +62,14 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.MaimaiMajorVersion
+import dev.fluentmai.android.core.model.MaimaiRatedScore
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.model.SongType
+import dev.fluentmai.android.core.model.buildMaimaiBestSet
+import dev.fluentmai.android.core.model.calculateDxRating
+import dev.fluentmai.android.core.model.maimaiRatedScoreComparator
+import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
 import java.text.Normalizer
 import java.util.Locale
 import okhttp3.OkHttpClient
@@ -73,17 +79,23 @@ import okhttp3.logging.HttpLoggingInterceptor
 fun ScoresScreen(
     scores: List<ScoreRecord>,
     charts: List<ChartRecord>,
+    majorVersions: List<MaimaiMajorVersion>,
     modifier: Modifier = Modifier,
 ) {
     val enrichedScores = remember(scores, charts) { enrichScores(scores, charts) }
-    val bestSet = remember(enrichedScores, charts) { buildBestSet(enrichedScores, charts) }
+    val currentVersion = remember(majorVersions, charts) {
+        resolveCurrentMaimaiVersion(majorVersions, charts)
+    }
+    val bestSet = remember(enrichedScores, currentVersion) {
+        buildMaimaiBestSet(enrichedScores, currentVersion)
+    }
     var mode by remember { mutableStateOf(ScoreMode.Best50) }
     var searchQuery by remember { mutableStateOf("") }
 
     val visibleScores = remember(enrichedScores, mode, searchQuery, bestSet) {
         val source = when (mode) {
             ScoreMode.Best50 -> bestSet.all
-            ScoreMode.All -> enrichedScores.sortedWith(scoreSort)
+            ScoreMode.All -> enrichedScores.sortedWith(maimaiRatedScoreComparator)
         }
         source.filter { it.matches(searchQuery) }
     }
@@ -144,6 +156,7 @@ fun ScoresScreen(
 fun ChartQueryScreen(
     charts: List<ChartRecord>,
     scores: List<ScoreRecord>,
+    majorVersions: List<MaimaiMajorVersion>,
     isLoading: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
@@ -156,7 +169,9 @@ fun ChartQueryScreen(
     var versionFilter by remember { mutableStateOf(ChartVersionFilter.All) }
     var statusFilter by remember { mutableStateOf(ChartStatusFilter.All) }
     var sortMode by remember { mutableStateOf(ChartSort.ConstantDesc) }
-    val latestVersion = remember(charts) { charts.maxOfOrNull { it.songVersion } ?: 0 }
+    val currentVersion = remember(majorVersions, charts) {
+        resolveCurrentMaimaiVersion(majorVersions, charts)?.majorVersion?.id ?: 0
+    }
 
     val visibleCharts = remember(
         charts,
@@ -168,13 +183,13 @@ fun ChartQueryScreen(
         versionFilter,
         statusFilter,
         sortMode,
-        latestVersion,
+        currentVersion,
     ) {
         charts
             .asSequence()
             .filter { selectedDifficulty == null || it.difficulty == selectedDifficulty }
             .filter { genreFilter.matches(it) }
-            .filter { versionFilter.matches(it, latestVersion) }
+            .filter { versionFilter.matches(it, currentVersion) }
             .filter { it.matchesLevel(levelQuery) }
             .filter { it.matchesQuery(searchQuery) }
             .filter { chart ->
@@ -484,7 +499,7 @@ private fun SectionTitle(title: String, count: Int) {
 }
 
 @Composable
-private fun ScoreCard(item: EnrichedScore, rank: Int) {
+private fun ScoreCard(item: MaimaiRatedScore, rank: Int) {
     val difficultyColor = item.score.difficulty.color()
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -973,10 +988,10 @@ private enum class ChartVersionFilter(val label: String) {
     Finale("FiNALE"),
     Classic("旧框");
 
-    fun matches(chart: ChartRecord, latestVersion: Int): Boolean =
+    fun matches(chart: ChartRecord, currentVersion: Int): Boolean =
         when (this) {
             All -> true
-            Current -> latestVersion > 0 && chart.songVersion == latestVersion
+            Current -> currentVersion > 0 && chart.songVersion == currentVersion
             Dx2025 -> chart.songVersion in 25000 until 25500
             Dx2024 -> chart.songVersion in 24000 until 25000
             Dx2023 -> chart.songVersion in 23000 until 24000
@@ -1020,32 +1035,18 @@ private enum class ChartSort(val label: String) {
         }
 }
 
-private data class EnrichedScore(
-    val score: ScoreRecord,
-    val chart: ChartRecord?,
-    val rating: Int?,
-) {
-    fun matches(query: String): Boolean {
-        if (query.isBlank()) return true
-        val normalized = normalizeQuery(query)
-        return listOf(
-            score.title,
-            score.difficulty.displayName(),
-            score.level,
-            score.songType.displayName(),
-            chart?.artist.orEmpty(),
-            chart?.noteDesigner.orEmpty(),
-            chart?.chartVersionName.orEmpty(),
-        ).any { normalizeQuery(it).contains(normalized) }
-    }
-}
-
-private data class BestSet(
-    val newBest: List<EnrichedScore>,
-    val oldBest: List<EnrichedScore>,
-) {
-    val all: List<EnrichedScore> = oldBest + newBest
-    val rating: Int = all.sumOf { it.rating ?: 0 }
+private fun MaimaiRatedScore.matches(query: String): Boolean {
+    if (query.isBlank()) return true
+    val normalized = normalizeQuery(query)
+    return listOf(
+        score.title,
+        score.difficulty.displayName(),
+        score.level,
+        score.songType.displayName(),
+        chart?.artist.orEmpty(),
+        chart?.noteDesigner.orEmpty(),
+        chart?.chartVersionName.orEmpty(),
+    ).any { normalizeQuery(it).contains(normalized) }
 }
 
 private data class ScoreKey(
@@ -1113,40 +1114,17 @@ private data class ScoreIndex(
 internal fun scoreForChartForTest(scores: List<ScoreRecord>, chart: ChartRecord): ScoreRecord? =
     ScoreIndex.from(scores).scoreFor(chart)
 
-private fun enrichScores(scores: List<ScoreRecord>, charts: List<ChartRecord>): List<EnrichedScore> {
+private fun enrichScores(scores: List<ScoreRecord>, charts: List<ChartRecord>): List<MaimaiRatedScore> {
     val chartMap = charts.associateBy { ScoreKey.fromChart(it) }
     return scores.map { score ->
         val chart = chartMap[ScoreKey.fromScore(score)]
-        EnrichedScore(
+        MaimaiRatedScore(
             score = score,
             chart = chart,
             rating = chart?.levelValue?.let { calculateDxRating(it, score.achievement, score.fc) },
         )
     }
 }
-
-private fun buildBestSet(scores: List<EnrichedScore>, charts: List<ChartRecord>): BestSet {
-    val latestVersion = charts.maxOfOrNull { it.chartVersion } ?: 0
-    val ratedScores = scores.filter { it.rating != null }
-    val newBest = ratedScores
-        .filter { it.chart.isNewRatingBucket(latestVersion) }
-        .sortedWith(scoreSort)
-        .take(15)
-    val oldBest = ratedScores
-        .filterNot { it.chart.isNewRatingBucket(latestVersion) }
-        .sortedWith(scoreSort)
-        .take(35)
-    return BestSet(newBest = newBest, oldBest = oldBest)
-}
-
-internal fun ChartRecord?.isNewRatingBucket(latestChartVersion: Int): Boolean =
-    latestChartVersion > 0 && this?.chartVersion == latestChartVersion
-
-private val scoreSort: Comparator<EnrichedScore> =
-    compareByDescending<EnrichedScore> { it.rating ?: -1 }
-        .thenByDescending { it.score.achievement }
-        .thenByDescending { it.chart?.levelValue ?: -1.0 }
-        .thenBy { it.score.title }
 
 private fun ChartRecord.matchesLevel(query: String): Boolean {
     val trimmed = query.trim()

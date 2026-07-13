@@ -2,8 +2,13 @@ package dev.fluentmai.android.feature.scores
 
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.MaimaiCurrentVersion
+import dev.fluentmai.android.core.model.MaimaiCurrentVersionSource
+import dev.fluentmai.android.core.model.MaimaiMajorVersion
+import dev.fluentmai.android.core.model.MaimaiRatingBucket
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.model.SongType
+import dev.fluentmai.android.core.model.ratingBucket
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -23,6 +28,10 @@ class ScoreIndexTest {
 
     @Test
     fun ratingNewBucketUsesChartVersionInsteadOfSongVersion() {
+        val currentVersion = MaimaiCurrentVersion(
+            majorVersion = MaimaiMajorVersion(25500, "舞萌DX 2026"),
+            source = MaimaiCurrentVersionSource.CATALOG_VERSION_TABLE,
+        )
         val oldSongWithLatestChart = chart(
             songType = SongType.DX,
             level = "13",
@@ -36,8 +45,8 @@ class ScoreIndexTest {
             chartVersion = 25000,
         )
 
-        assertTrue(oldSongWithLatestChart.isNewRatingBucket(latestChartVersion = 25500))
-        assertFalse(latestSongWithOlderChart.isNewRatingBucket(latestChartVersion = 25500))
+        assertEquals(MaimaiRatingBucket.CURRENT, oldSongWithLatestChart.ratingBucket(currentVersion))
+        assertEquals(MaimaiRatingBucket.OLD, latestSongWithOlderChart.ratingBucket(currentVersion))
     }
 
     private fun score(songType: SongType): ScoreRecord =

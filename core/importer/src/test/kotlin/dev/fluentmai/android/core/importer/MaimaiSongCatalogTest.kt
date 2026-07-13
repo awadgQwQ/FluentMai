@@ -58,6 +58,8 @@ class MaimaiSongCatalogTest {
         assertEquals(834, catalog.idForTitle("PANDORA PARADOXXX"))
         assertEquals(835, catalog.idForTitle(" temptation "))
         assertNull(catalog.idForTitle("missing"))
+        assertEquals(listOf(10000, 25500), catalog.majorVersions().map { it.id })
+        assertEquals("舞萌DX 2026", catalog.majorVersions().last().name)
         assertEquals("14+", catalog.levelForTitle("PANDORA PARADOXXX", 3, SongType.STANDARD))
         assertTrue(catalog.chartExists("PANDORA PARADOXXX", 3, SongType.STANDARD) == true)
         assertFalse(catalog.chartExists("PANDORA PARADOXXX", 3, SongType.DX) == true)

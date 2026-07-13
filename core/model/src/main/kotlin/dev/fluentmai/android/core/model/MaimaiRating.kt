@@ -1,10 +1,10 @@
-package dev.fluentmai.android.feature.scores
+package dev.fluentmai.android.core.model
 
 import kotlin.math.floor
 import kotlin.math.min
 
 @Suppress("UNUSED_PARAMETER")
-internal fun calculateDxRating(
+fun calculateDxRating(
     levelValue: Double,
     achievement: Double,
     comboFlag: String? = null,
@@ -13,7 +13,7 @@ internal fun calculateDxRating(
     return floor(levelValue * (cappedAchievement / 100.0) * dxRatingCoefficient(cappedAchievement)).toInt()
 }
 
-internal fun dxRatingCoefficient(achievement: Double): Double =
+fun dxRatingCoefficient(achievement: Double): Double =
     when {
         achievement >= 100.5 -> 22.4
         achievement >= 100.4999 -> 22.2

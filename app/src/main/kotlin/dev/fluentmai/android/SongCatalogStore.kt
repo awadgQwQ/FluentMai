@@ -5,6 +5,9 @@ import dev.fluentmai.android.core.importer.MaimaiSongCatalog
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
 import java.io.File
 import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 class SongCatalogStore(
     context: Context,
@@ -29,9 +32,16 @@ class SongCatalogStore(
     }
 
     fun refreshFromNetwork(): SongCatalogSnapshot {
+        val existingSnapshot = loadLocalCatalog()
         val json = client.fetchCatalogJson()
         val snapshot = parseSnapshot(json, SongCatalogSource.Network)
-        cacheFile.writeText(json, Charsets.UTF_8)
+        catalogRefreshRejectionReason(
+            incoming = snapshot.metrics(),
+            existing = existingSnapshot?.metrics(),
+        )?.let { reason ->
+            throw IOException("Refusing unsafe song catalog refresh: $reason")
+        }
+        writeCacheAtomically(json)
         return snapshot
     }
 
@@ -41,11 +51,15 @@ class SongCatalogStore(
     ): SongCatalogSnapshot =
         try {
             val catalog = MaimaiSongCatalog.fromLxnsSongListJson(json)
-            SongCatalogSnapshot(
+            val snapshot = SongCatalogSnapshot(
                 catalog = catalog,
                 source = source,
                 jsonBytes = json.toByteArray(Charsets.UTF_8).size,
             )
+            require(snapshot.songCount > 0) { "catalog contains no songs" }
+            require(snapshot.chartCount > 0) { "catalog contains no playable charts" }
+            require(snapshot.majorVersionCount > 0) { "catalog contains no major-version table" }
+            snapshot
         } catch (error: Exception) {
             throw IOException(
                 "Unable to parse ${source.logName} song catalog: ${
@@ -54,6 +68,25 @@ class SongCatalogStore(
                 error,
             )
         }
+
+    private fun writeCacheAtomically(json: String) {
+        val temporaryFile = File(cacheFile.parentFile, "$CACHE_FILE_NAME.tmp")
+        temporaryFile.writeText(json, Charsets.UTF_8)
+        try {
+            Files.move(
+                temporaryFile.toPath(),
+                cacheFile.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temporaryFile.toPath(),
+                cacheFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
+    }
 
     private companion object {
         private const val CACHE_FILE_NAME = "lxns-maimai-song-list-cache.json"
@@ -68,7 +101,52 @@ data class SongCatalogSnapshot(
 ) {
     val songCount: Int = catalog.songCount()
     val chartCount: Int = catalog.charts().size
+    val majorVersionCount: Int = catalog.majorVersions().size
+    val latestMajorVersion: Int? = catalog.majorVersions().maxOfOrNull { it.id }
 }
+
+internal data class SongCatalogMetrics(
+    val songCount: Int,
+    val chartCount: Int,
+    val majorVersionCount: Int,
+    val latestMajorVersion: Int?,
+)
+
+internal fun SongCatalogSnapshot.metrics(): SongCatalogMetrics =
+    SongCatalogMetrics(
+        songCount = songCount,
+        chartCount = chartCount,
+        majorVersionCount = majorVersionCount,
+        latestMajorVersion = latestMajorVersion,
+    )
+
+internal fun catalogRefreshRejectionReason(
+    incoming: SongCatalogMetrics,
+    existing: SongCatalogMetrics?,
+): String? {
+    if (incoming.songCount <= 0) return "incoming catalog has no songs"
+    if (incoming.chartCount <= 0) return "incoming catalog has no charts"
+    if (incoming.majorVersionCount <= 0 || incoming.latestMajorVersion == null) {
+        return "incoming catalog has no major-version metadata"
+    }
+    if (existing == null) return null
+    if (incoming.songCount < existing.songCount.retainedMinimum()) {
+        return "song count regressed from ${existing.songCount} to ${incoming.songCount}"
+    }
+    if (incoming.chartCount < existing.chartCount.retainedMinimum()) {
+        return "chart count regressed from ${existing.chartCount} to ${incoming.chartCount}"
+    }
+    val existingVersion = existing.latestMajorVersion
+    if (existingVersion != null && incoming.latestMajorVersion < existingVersion) {
+        return "major version regressed from $existingVersion to ${incoming.latestMajorVersion}"
+    }
+    return null
+}
+
+private fun Int.retainedMinimum(): Int =
+    ((this.toLong() * MINIMUM_RETAINED_PERCENT) + 99L).div(100L).toInt()
+
+private const val MINIMUM_RETAINED_PERCENT = 80
 
 enum class SongCatalogSource(
     val logName: String,

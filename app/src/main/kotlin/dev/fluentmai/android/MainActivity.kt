@@ -54,6 +54,7 @@ import dev.fluentmai.android.core.importer.WahlapSupplementalPageProvider
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.ImportResult
+import dev.fluentmai.android.core.model.MaimaiMajorVersion
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
@@ -378,6 +379,7 @@ private fun FluentMaiApp(
     var scoreCount by remember { mutableStateOf(0) }
     var scores by remember { mutableStateOf<List<ScoreRecord>>(emptyList()) }
     var chartRecords by remember { mutableStateOf<List<ChartRecord>>(emptyList()) }
+    var chartMajorVersions by remember { mutableStateOf<List<MaimaiMajorVersion>>(emptyList()) }
     var isChartCatalogLoading by remember { mutableStateOf(false) }
     var isScoreStateLoaded by remember { mutableStateOf(false) }
     var isRatingReadyLogged by remember { mutableStateOf(false) }
@@ -448,6 +450,7 @@ private fun FluentMaiApp(
             val localSnapshot = withContext(Dispatchers.IO) { loadLocalChartCatalog() }
             if (localSnapshot != null) {
                 chartRecords = localSnapshot.catalog.charts()
+                chartMajorVersions = localSnapshot.catalog.majorVersions()
                 Log.i(
                     TAG,
                     "Local song catalog ready in ${SystemClock.elapsedRealtime() - startedAt}ms: " +
@@ -462,6 +465,7 @@ private fun FluentMaiApp(
                 Log.i(TAG, "LXNS song catalog background refresh started")
                 val networkSnapshot = withContext(Dispatchers.IO) { refreshChartCatalog() }
                 chartRecords = networkSnapshot.catalog.charts()
+                chartMajorVersions = networkSnapshot.catalog.majorVersions()
                 Log.i(
                     TAG,
                     "LXNS song catalog background refresh completed in " +
@@ -778,6 +782,7 @@ private fun FluentMaiApp(
             AppTab.Home -> ScoresScreen(
                 scores = scores,
                 charts = chartRecords,
+                majorVersions = chartMajorVersions,
                 modifier = modifier,
             )
 
@@ -822,6 +827,7 @@ private fun FluentMaiApp(
             AppTab.Charts -> ChartQueryScreen(
                 charts = chartRecords,
                 scores = scores,
+                majorVersions = chartMajorVersions,
                 isLoading = isChartCatalogLoading,
                 onRefresh = ::refreshChartRecords,
                 modifier = modifier,
