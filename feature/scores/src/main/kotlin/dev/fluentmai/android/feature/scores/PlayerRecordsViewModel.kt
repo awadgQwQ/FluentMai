@@ -1,13 +1,17 @@
 package dev.fluentmai.android.feature.scores
 
+import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.fluentmai.android.core.model.AchievementRank
+import dev.fluentmai.android.core.model.ChartIdentity
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.model.FullComboStatus
 import dev.fluentmai.android.core.model.FullSyncStatus
+import dev.fluentmai.android.core.model.MaimaiCurrentVersion
 import dev.fluentmai.android.core.model.MaimaiMajorVersion
 import dev.fluentmai.android.core.model.PlateKind
 import dev.fluentmai.android.core.model.PlateProgress
@@ -17,11 +21,14 @@ import dev.fluentmai.android.core.model.PlayerRecordCatalog
 import dev.fluentmai.android.core.model.PlayerRecordFilters
 import dev.fluentmai.android.core.model.PlayerRecordSort
 import dev.fluentmai.android.core.model.PlayerRecordStats
+import dev.fluentmai.android.core.model.RatingRecommendationFilters
+import dev.fluentmai.android.core.model.RatingRecommendationResult
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.model.SongType
 import dev.fluentmai.android.core.model.SongAliasCatalog
 import dev.fluentmai.android.core.model.VersionAgeFilter
 import dev.fluentmai.android.core.model.buildPlayerRecordCatalog
+import dev.fluentmai.android.core.model.buildRatingRecommendations
 import dev.fluentmai.android.core.model.calculatePlateProgress
 import dev.fluentmai.android.core.model.filterPlayerRecords
 import dev.fluentmai.android.core.model.stats
@@ -35,7 +42,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal enum class PlayerRecordsSection { RECORDS, PLATES }
+internal enum class PlayerRecordsSection { RECORDS, PLATES, RECOMMENDATIONS }
 
 internal enum class PlateListSort { LEVEL_DESC, TITLE_ASC, SONG_ID_ASC }
 
@@ -54,6 +61,14 @@ internal data class PlayerRecordsUiState(
     val plateIncompleteOnly: Boolean = true,
     val plateSort: PlateListSort = PlateListSort.LEVEL_DESC,
     val plateProgress: PlateProgress? = null,
+    val recommendationFilters: RatingRecommendationFilters = RatingRecommendationFilters(),
+    val recommendationTargetTotalText: String = "",
+    val recommendationTargetAchievementText: String = "",
+    val recommendationConstantMinText: String = "",
+    val recommendationConstantMaxText: String = "",
+    val recommendationResult: RatingRecommendationResult? = null,
+    val recommendationInputError: String? = null,
+    val isRecommendationWorking: Boolean = false,
     val isWorking: Boolean = false,
 )
 
@@ -64,7 +79,7 @@ internal class PlayerRecordsViewModel(
     val uiState: StateFlow<PlayerRecordsUiState> = _uiState.asStateFlow()
 
     private var catalog: PlayerRecordCatalog? = null
-    private var currentVersionId: Int? = null
+    private var currentVersion: MaimaiCurrentVersion? = null
     private var indexedCharts: List<ChartRecord>? = null
     private var indexedScores: List<ScoreRecord>? = null
     private var indexedMajorVersions: List<MaimaiMajorVersion>? = null
@@ -72,12 +87,14 @@ internal class PlayerRecordsViewModel(
     private var generation = 0L
     private var indexJob: Job? = null
     private var queryJob: Job? = null
+    private var recommendationJob: Job? = null
+    private var recommendationGeneration = 0L
 
     fun submitCatalog(
         charts: List<ChartRecord>,
         scores: List<ScoreRecord>,
         majorVersions: List<MaimaiMajorVersion>,
-        operatingVersionId: Int?,
+        operatingVersion: MaimaiCurrentVersion?,
         aliases: SongAliasCatalog = SongAliasCatalog.Empty,
     ) {
         if (
@@ -85,16 +102,18 @@ internal class PlayerRecordsViewModel(
             scores === indexedScores &&
             majorVersions === indexedMajorVersions &&
             aliases === indexedAliases &&
-            operatingVersionId == currentVersionId
+            operatingVersion == currentVersion
         ) return
         indexedCharts = charts
         indexedScores = scores
         indexedMajorVersions = majorVersions
         indexedAliases = aliases
-        currentVersionId = operatingVersionId
+        currentVersion = operatingVersion
+        val operatingVersionId = operatingVersion?.majorVersion?.id
         val requestGeneration = ++generation
         indexJob?.cancel()
         queryJob?.cancel()
+        recommendationJob?.cancel()
         indexJob = viewModelScope.launch {
             _uiState.update { it.copy(isWorking = true) }
             val result = withContext(Dispatchers.Default) {
@@ -124,6 +143,7 @@ internal class PlayerRecordsViewModel(
             persist(KEY_PLATE_VERSION, selectedVersion)
             runQuery()
             updatePlateProgress()
+            runRecommendations()
         }
     }
 
@@ -195,6 +215,70 @@ internal class PlayerRecordsViewModel(
         _uiState.update { it.copy(plateSort = value) }
     }
 
+    fun updateRecommendationTargetTotal(value: String) {
+        persist(KEY_RECOMMENDATION_TARGET_TOTAL, value)
+        _uiState.update { it.copy(recommendationTargetTotalText = value) }
+        runRecommendations(180L)
+    }
+
+    fun updateRecommendationTargetAchievement(value: String) {
+        persist(KEY_RECOMMENDATION_TARGET_ACHIEVEMENT, value)
+        _uiState.update { it.copy(recommendationTargetAchievementText = value) }
+        runRecommendations(180L)
+    }
+
+    fun updateRecommendationConstantMin(value: String) {
+        persist(KEY_RECOMMENDATION_CONSTANT_MIN, value)
+        _uiState.update { it.copy(recommendationConstantMinText = value) }
+        runRecommendations(180L)
+    }
+
+    fun updateRecommendationConstantMax(value: String) {
+        persist(KEY_RECOMMENDATION_CONSTANT_MAX, value)
+        _uiState.update { it.copy(recommendationConstantMaxText = value) }
+        runRecommendations(180L)
+    }
+
+    fun updateRecommendationVersionAge(value: VersionAgeFilter) = updateRecommendationFilters {
+        it.copy(versionAge = value)
+    }
+
+    fun updateRecommendationExcludeSssPlus(value: Boolean) = updateRecommendationFilters {
+        it.copy(excludeSssPlus = value)
+    }
+
+    fun updateRecommendationOnlyB50Gain(value: Boolean) = updateRecommendationFilters {
+        it.copy(onlyB50Gain = value)
+    }
+
+    fun excludeRecommendation(identity: ChartIdentity) = updateRecommendationFilters { filters ->
+        filters.copy(excludedIdentities = filters.excludedIdentities + identity)
+    }
+
+    fun clearRecommendationExclusions() = updateRecommendationFilters {
+        it.copy(excludedIdentities = emptySet())
+    }
+
+    fun resetRecommendationFilters() {
+        val reset = RatingRecommendationFilters()
+        persist(KEY_RECOMMENDATION_TARGET_TOTAL, "")
+        persist(KEY_RECOMMENDATION_TARGET_ACHIEVEMENT, "")
+        persist(KEY_RECOMMENDATION_CONSTANT_MIN, "")
+        persist(KEY_RECOMMENDATION_CONSTANT_MAX, "")
+        persistRecommendationFilters(reset)
+        _uiState.update {
+            it.copy(
+                recommendationFilters = reset,
+                recommendationTargetTotalText = "",
+                recommendationTargetAchievementText = "",
+                recommendationConstantMinText = "",
+                recommendationConstantMaxText = "",
+                recommendationInputError = null,
+            )
+        }
+        runRecommendations()
+    }
+
     private fun updateFilters(
         debounceMillis: Long = 0,
         transform: (PlayerRecordFilters) -> PlayerRecordFilters,
@@ -209,7 +293,7 @@ internal class PlayerRecordsViewModel(
     private fun runQuery(debounceMillis: Long = 0) {
         val playerCatalog = catalog ?: return
         val filters = _uiState.value.filters
-        val operatingVersion = currentVersionId
+        val operatingVersion = currentVersion?.majorVersion?.id
         queryJob?.cancel()
         queryJob = viewModelScope.launch {
             _uiState.update { it.copy(isWorking = true) }
@@ -237,6 +321,63 @@ internal class PlayerRecordsViewModel(
         _uiState.update { it.copy(plateProgress = progress) }
     }
 
+    private fun updateRecommendationFilters(
+        transform: (RatingRecommendationFilters) -> RatingRecommendationFilters,
+    ) {
+        val next = transform(_uiState.value.recommendationFilters)
+        if (next == _uiState.value.recommendationFilters) return
+        persistRecommendationFilters(next)
+        _uiState.update { it.copy(recommendationFilters = next) }
+        runRecommendations()
+    }
+
+    private fun runRecommendations(debounceMillis: Long = 0) {
+        val playerCatalog = catalog ?: return
+        val operatingVersion = currentVersion
+        val requestGeneration = ++recommendationGeneration
+        recommendationJob?.cancel()
+        recommendationJob = viewModelScope.launch {
+            _uiState.update { it.copy(isRecommendationWorking = true, recommendationInputError = null) }
+            if (debounceMillis > 0) delay(debounceMillis)
+            val parsed = parseRecommendationFilters(_uiState.value)
+            if (parsed.error != null) {
+                if (requestGeneration == recommendationGeneration) {
+                    _uiState.update {
+                        it.copy(
+                            recommendationResult = null,
+                            recommendationInputError = parsed.error,
+                            isRecommendationWorking = false,
+                        )
+                    }
+                }
+                return@launch
+            }
+            val startedAt = SystemClock.elapsedRealtime()
+            val result = withContext(Dispatchers.Default) {
+                buildRatingRecommendations(
+                    records = playerCatalog.records,
+                    currentVersion = operatingVersion,
+                    filters = requireNotNull(parsed.filters),
+                )
+            }
+            if (requestGeneration != recommendationGeneration || catalog !== playerCatalog) return@launch
+            Log.i(
+                TAG,
+                "Rating recommendations ready in ${SystemClock.elapsedRealtime() - startedAt}ms: " +
+                    "eligible=${result.eligiblePlayedCharts} results=${result.recommendations.size} " +
+                    "availability=${result.availability}",
+            )
+            _uiState.update {
+                it.copy(
+                    recommendationFilters = requireNotNull(parsed.filters),
+                    recommendationResult = result,
+                    recommendationInputError = null,
+                    isRecommendationWorking = false,
+                )
+            }
+        }
+    }
+
     private fun persistFilters(filters: PlayerRecordFilters) {
         persist(KEY_QUERY, filters.query)
         persist(KEY_DISPLAY_LEVEL, filters.displayLevel)
@@ -253,11 +394,22 @@ internal class PlayerRecordsViewModel(
         persist(KEY_SORT, filters.sort.name)
     }
 
+    private fun persistRecommendationFilters(filters: RatingRecommendationFilters) {
+        persist(KEY_RECOMMENDATION_VERSION_AGE, filters.versionAge.name)
+        persist(KEY_RECOMMENDATION_EXCLUDE_SSS_PLUS, filters.excludeSssPlus)
+        persist(KEY_RECOMMENDATION_ONLY_B50, filters.onlyB50Gain)
+        persist(
+            KEY_RECOMMENDATION_EXCLUDED,
+            ArrayList(filters.excludedIdentities.map(ChartIdentity::stableKey).sorted()),
+        )
+    }
+
     private fun <T> persist(key: String, value: T?) {
         savedStateHandle[key] = value
     }
 
     private companion object {
+        private const val TAG = "PlayerRecords"
         private const val KEY_SECTION = "records.section"
         private const val KEY_QUERY = "records.query"
         private const val KEY_CONSTANT_MIN = "records.constant.min"
@@ -279,6 +431,14 @@ internal class PlayerRecordsViewModel(
         private const val KEY_PLATE_DIFFICULTY = "plates.difficulty"
         private const val KEY_PLATE_INCOMPLETE = "plates.incomplete"
         private const val KEY_PLATE_SORT = "plates.sort"
+        private const val KEY_RECOMMENDATION_TARGET_TOTAL = "recommendations.target.total"
+        private const val KEY_RECOMMENDATION_TARGET_ACHIEVEMENT = "recommendations.target.achievement"
+        private const val KEY_RECOMMENDATION_CONSTANT_MIN = "recommendations.constant.min"
+        private const val KEY_RECOMMENDATION_CONSTANT_MAX = "recommendations.constant.max"
+        private const val KEY_RECOMMENDATION_VERSION_AGE = "recommendations.version.age"
+        private const val KEY_RECOMMENDATION_EXCLUDE_SSS_PLUS = "recommendations.exclude.sssplus"
+        private const val KEY_RECOMMENDATION_ONLY_B50 = "recommendations.only.b50"
+        private const val KEY_RECOMMENDATION_EXCLUDED = "recommendations.excluded"
 
         private fun restoreState(handle: SavedStateHandle): PlayerRecordsUiState {
             val minText: String = handle[KEY_CONSTANT_MIN] ?: ""
@@ -309,6 +469,21 @@ internal class PlayerRecordsViewModel(
                 selectedPlateDifficulty = enumOrNull<Difficulty>(handle[KEY_PLATE_DIFFICULTY]),
                 plateIncompleteOnly = handle[KEY_PLATE_INCOMPLETE] ?: true,
                 plateSort = enumOrDefault<PlateListSort>(handle[KEY_PLATE_SORT], PlateListSort.LEVEL_DESC),
+                recommendationFilters = RatingRecommendationFilters(
+                    versionAge = enumOrDefault<VersionAgeFilter>(
+                        handle[KEY_RECOMMENDATION_VERSION_AGE],
+                        VersionAgeFilter.ALL,
+                    ),
+                    excludeSssPlus = handle[KEY_RECOMMENDATION_EXCLUDE_SSS_PLUS] ?: true,
+                    excludedIdentities = (handle.get<ArrayList<String>>(KEY_RECOMMENDATION_EXCLUDED) ?: arrayListOf())
+                        .mapNotNull(ChartIdentity::parseStableKey)
+                        .toSet(),
+                    onlyB50Gain = handle[KEY_RECOMMENDATION_ONLY_B50] ?: true,
+                ),
+                recommendationTargetTotalText = handle[KEY_RECOMMENDATION_TARGET_TOTAL] ?: "",
+                recommendationTargetAchievementText = handle[KEY_RECOMMENDATION_TARGET_ACHIEVEMENT] ?: "",
+                recommendationConstantMinText = handle[KEY_RECOMMENDATION_CONSTANT_MIN] ?: "",
+                recommendationConstantMaxText = handle[KEY_RECOMMENDATION_CONSTANT_MAX] ?: "",
             )
         }
 
@@ -318,4 +493,39 @@ internal class PlayerRecordsViewModel(
         private inline fun <reified T : Enum<T>> enumOrDefault(name: String?, default: T): T =
             enumOrNull<T>(name) ?: default
     }
+}
+
+private data class ParsedRecommendationFilters(
+    val filters: RatingRecommendationFilters? = null,
+    val error: String? = null,
+)
+
+private fun parseRecommendationFilters(state: PlayerRecordsUiState): ParsedRecommendationFilters {
+    val targetTotal = state.recommendationTargetTotalText.trim().let { value ->
+        if (value.isEmpty()) null else value.toIntOrNull()?.takeIf { it in 0..30_000 }
+            ?: return ParsedRecommendationFilters(error = "目标总 Rating 必须是 0 到 30000 的整数")
+    }
+    val targetAchievement = state.recommendationTargetAchievementText.trim().let { value ->
+        if (value.isEmpty()) null else value.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..101.0 }
+            ?: return ParsedRecommendationFilters(error = "目标达成率必须在 0.0% 到 101.0% 之间")
+    }
+    val constantMin = state.recommendationConstantMinText.trim().let { value ->
+        if (value.isEmpty()) null else value.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.1..20.0 }
+            ?: return ParsedRecommendationFilters(error = "最低定数必须在 0.1 到 20.0 之间")
+    }
+    val constantMax = state.recommendationConstantMaxText.trim().let { value ->
+        if (value.isEmpty()) null else value.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.1..20.0 }
+            ?: return ParsedRecommendationFilters(error = "最高定数必须在 0.1 到 20.0 之间")
+    }
+    if (constantMin != null && constantMax != null && constantMin > constantMax) {
+        return ParsedRecommendationFilters(error = "最低定数不能高于最高定数")
+    }
+    return ParsedRecommendationFilters(
+        filters = state.recommendationFilters.copy(
+            targetTotalRating = targetTotal,
+            targetAchievement = targetAchievement,
+            constantMin = constantMin,
+            constantMax = constantMax,
+        ),
+    )
 }

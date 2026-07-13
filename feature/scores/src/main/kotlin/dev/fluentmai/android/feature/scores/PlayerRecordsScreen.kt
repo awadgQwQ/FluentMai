@@ -91,11 +91,11 @@ fun PlayerRecordsScreen(
 ) {
     val recordsViewModel: PlayerRecordsViewModel = viewModel()
     val state by recordsViewModel.uiState.collectAsState()
-    val operatingVersionId = remember(majorVersions, charts) {
-        resolveCurrentMaimaiVersion(majorVersions, charts)?.majorVersion?.id
+    val operatingVersion = remember(majorVersions, charts) {
+        resolveCurrentMaimaiVersion(majorVersions, charts)
     }
     SideEffect {
-        recordsViewModel.submitCatalog(charts, scores, majorVersions, operatingVersionId, aliases)
+        recordsViewModel.submitCatalog(charts, scores, majorVersions, operatingVersion, aliases)
     }
 
     when (state.section) {
@@ -106,6 +106,12 @@ fun PlayerRecordsScreen(
             modifier = modifier,
         )
         PlayerRecordsSection.PLATES -> PlateContent(
+            state = state,
+            viewModel = recordsViewModel,
+            onChartSelected = onChartSelected,
+            modifier = modifier,
+        )
+        PlayerRecordsSection.RECOMMENDATIONS -> RatingRecommendationsContent(
             state = state,
             viewModel = recordsViewModel,
             onChartSelected = onChartSelected,
@@ -168,21 +174,32 @@ private fun RecordsHeader(state: PlayerRecordsUiState, viewModel: PlayerRecordsV
 }
 
 @Composable
-private fun SectionSwitch(
+internal fun SectionSwitch(
     section: PlayerRecordsSection,
     onChange: (PlayerRecordsSection) -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(
-            selected = section == PlayerRecordsSection.RECORDS,
-            onClick = { onChange(PlayerRecordsSection.RECORDS) },
-            label = { Text("成绩与统计") },
-        )
-        FilterChip(
-            selected = section == PlayerRecordsSection.PLATES,
-            onClick = { onChange(PlayerRecordsSection.PLATES) },
-            label = { Text("牌子进度") },
-        )
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            FilterChip(
+                selected = section == PlayerRecordsSection.RECORDS,
+                onClick = { onChange(PlayerRecordsSection.RECORDS) },
+                label = { Text("成绩与统计") },
+            )
+        }
+        item {
+            FilterChip(
+                selected = section == PlayerRecordsSection.PLATES,
+                onClick = { onChange(PlayerRecordsSection.PLATES) },
+                label = { Text("牌子进度") },
+            )
+        }
+        item {
+            FilterChip(
+                selected = section == PlayerRecordsSection.RECOMMENDATIONS,
+                onClick = { onChange(PlayerRecordsSection.RECOMMENDATIONS) },
+                label = { Text("推分建议") },
+            )
+        }
     }
 }
 
