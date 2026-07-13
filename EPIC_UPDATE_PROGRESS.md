@@ -6,8 +6,8 @@
 
 - 阶段一：现状审计与性能基线已完成。
 - 任务开始前的工作树与审计记录均已保存为独立 checkpoint。
-- P0 版本语义、B15 正确性、曲库缓存保护与隐私边界均已实现并通过 JVM、构建与真机覆盖安装验证。
-- 正在保存隐私边界稳定 checkpoint；下一步继续 P0：谱面性能与页面状态。
+- P0 版本语义、B15 正确性、曲库缓存保护、隐私边界、谱面性能与页面状态均已实现并通过 JVM、构建与真机覆盖安装验证。
+- 正在保存谱面性能与状态稳定 checkpoint；下一步进入 Android P1 产品能力更新。
 
 ## 任务约束
 
@@ -406,6 +406,31 @@ Debug APK：
 - SQLite `integrity_check=ok`、`user_version=5`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义指纹全部与前一 checkpoint 一致。
 - 设置页证据：`C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p0_privacy_boundary.png`。
 
+## P0：谱面查询性能与页面状态
+
+实现：
+
+- 将 5,360 张谱面的标题、艺人、分区、谱师、版本、BPM、ID、难度和类型检索字段一次性规范化并建立内存查询索引；成绩关联也在索引构建阶段完成。
+- 全量筛选与确定性排序移到 `Dispatchers.Default`，搜索和等级输入采用 180ms debounce；UI 最多渲染 500 条，但结果计数保留完整匹配数量。
+- 新增 Activity 作用域 `ChartQueryViewModel` 与 `SavedStateHandle`，保存搜索、等级、难度、分区、版本、游玩状态、排序以及网格滚动位置；底部 Tab 往返不再重建索引或丢失状态，配置重建后也可恢复。
+- 每张卡片不再创建独立 Coil/OkHttp 实例，统一复用应用级图片加载器并请求 320px 目标尺寸；移除每张曲绘成功/失败和 BASIC HTTP 日志。
+- 顶层 Tab 使用 `rememberSaveable`；查询状态使用稳定谱面 key，筛选期间显示明确的“筛选中/正在准备谱面结果”状态。
+- 新增查询别名、ID、游玩状态、当前版本未来批次隔离、确定性排序，以及 `SavedStateHandle` 筛选/排序/滚动恢复与损坏枚举降级测试。
+
+同设备、同操作口径验证：
+
+- `\.\gradlew.bat test :app:assembleDebug --console=plain`：`BUILD SUCCESSFUL`；34 suites / 157 tests / 0 failures / 0 errors / 0 skipped。
+- Debug APK：33,747,410 bytes；SHA-256 `FBD0F4513BDE26332163D5403E6741C0ACA31F80628240AD3687D144857145A6`。
+- 对 serial `2923ae26` 执行 `adb install -r` 覆盖安装成功；未卸载或清除数据，首次安装时间仍为 `2026-06-29 02:36:58`。
+- 冷启动 `TotalTime=697ms`；Rating 仍为 `14655`。
+- 首次进入谱面页从基线 102 frames / 4.92% jank / p99 1,050ms，改善到 140 frames / 0.71% jank / p99 109ms；索引后台构建 441ms，初次查询后台计算 215ms。
+- 10 次长列表滑动从基线 14.97% jank 改善到首次 11.54%、热缓存反向滑动 9.13%；热缓存相对基线下降约 39%。
+- 键盘已就绪时搜索 `PANDORA`：查询后台计算 17ms，5 条结果；帧指标从基线 20.69% jank / p99 150ms 改善到 15.79% / p99 73ms。
+- 带搜索状态在“谱面 → 首页 → 谱面”往返后仍为 `PANDORA` 与 5 条结果，索引构建次数保持 1；往返过程 118 frames / 2.54% jank。
+- 强制横屏后再恢复原系统旋转设置，搜索与 5 条结果保持；深度滚动后 Tab 往返，前后 17 个可见曲绘语义标识数组逐项一致。
+- 日志只包含不带查询内容的索引/结果数量与耗时；未再出现逐曲绘网络日志。
+- 覆盖安装后 SQLite `integrity_check=ok`、`user_version=5`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义指纹全部与基线逐字节一致；临时数据库副本已删除。
+
 ## Checkpoint commits
 
 - `2670892c6ec309d7f628660072bc9dba67980ff8` — `chore: checkpoint pre-epic working tree`
@@ -420,6 +445,10 @@ Debug APK：
   - 统一主要版本来源、B35/B15 领域计算与谱面当前版本筛选；
   - 加固曲库缓存完整性、规模回退、版本回退和原子替换；
   - checkpoint 当时 145 项测试通过，并以真机覆盖安装确认 Rating `14655`、B15 15 张且用户数据指纹不变。
+- `14ad6c20d95602dc49d9329b5eb584947ad89d35` — `fix: enforce transient credential boundary`
+  - 停止新增 Token 与原始 HTML 持久化，保留旧 Room v5 schema 与设备既有缓存；
+  - 移除 destructive migration 降级并补齐源码边界、旧行保留测试；
+  - checkpoint 当时 149 项测试通过，真机覆盖安装后导入数据、旧私密缓存元数据和语义指纹均保持不变。
 
 ## 最终结果
 

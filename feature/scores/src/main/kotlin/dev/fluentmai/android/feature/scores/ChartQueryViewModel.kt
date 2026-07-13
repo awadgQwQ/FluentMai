@@ -1,0 +1,178 @@
+package dev.fluentmai.android.feature.scores
+
+import android.os.SystemClock
+import android.util.Log
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dev.fluentmai.android.core.model.ChartRecord
+import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.ScoreRecord
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+internal data class ChartQueryUiState(
+    val filters: ChartQueryFilters,
+    val result: ChartQueryResult = ChartQueryResult(),
+    val isIndexing: Boolean = false,
+    val isFiltering: Boolean = false,
+)
+
+internal class ChartQueryViewModel(
+    private val savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+    private val _uiState = MutableStateFlow(
+        ChartQueryUiState(filters = restoreFilters(savedStateHandle)),
+    )
+    val uiState: StateFlow<ChartQueryUiState> = _uiState.asStateFlow()
+
+    val restoredScrollIndex: Int
+        get() = savedStateHandle[KEY_SCROLL_INDEX] ?: 0
+    val restoredScrollOffset: Int
+        get() = savedStateHandle[KEY_SCROLL_OFFSET] ?: 0
+
+    private var engine: ChartQueryEngine? = null
+    private var indexedCharts: List<ChartRecord>? = null
+    private var indexedScores: List<ScoreRecord>? = null
+    private var indexedCurrentVersion: Int = 0
+    private var inputGeneration: Long = 0
+    private var indexJob: Job? = null
+    private var queryJob: Job? = null
+
+    fun submitCatalog(
+        charts: List<ChartRecord>,
+        scores: List<ScoreRecord>,
+        currentVersion: Int,
+    ) {
+        if (charts === indexedCharts && scores === indexedScores && currentVersion == indexedCurrentVersion) return
+        indexedCharts = charts
+        indexedScores = scores
+        indexedCurrentVersion = currentVersion
+        val generation = ++inputGeneration
+        indexJob?.cancel()
+        queryJob?.cancel()
+        indexJob = viewModelScope.launch {
+            _uiState.update { it.copy(isIndexing = true, isFiltering = false) }
+            val startedAt = SystemClock.elapsedRealtime()
+            val built = withContext(Dispatchers.Default) {
+                ChartQueryEngine.create(charts, scores)
+            }
+            if (generation != inputGeneration) return@launch
+            engine = built
+            Log.i(
+                TAG,
+                "Chart index ready in ${SystemClock.elapsedRealtime() - startedAt}ms: " +
+                    "chartCount=${charts.size} scoreCount=${scores.size}",
+            )
+            _uiState.update { it.copy(isIndexing = false) }
+            scheduleQuery(debounceMillis = 0L)
+        }
+    }
+
+    fun updateSearchQuery(value: String) =
+        updateFilters(debounceMillis = SEARCH_DEBOUNCE_MILLIS) { it.copy(searchQuery = value) }
+
+    fun updateLevelQuery(value: String) =
+        updateFilters(debounceMillis = SEARCH_DEBOUNCE_MILLIS) { it.copy(levelQuery = value) }
+
+    fun updateDifficulty(value: Difficulty?) =
+        updateFilters { it.copy(difficulty = value) }
+
+    fun updateGenre(value: ChartGenreFilter) =
+        updateFilters { it.copy(genre = value) }
+
+    fun updateVersion(value: ChartVersionFilter) =
+        updateFilters { it.copy(version = value) }
+
+    fun updateStatus(value: ChartStatusFilter) =
+        updateFilters { it.copy(status = value) }
+
+    fun updateSort(value: ChartSort) =
+        updateFilters { it.copy(sort = value) }
+
+    fun saveScroll(index: Int, offset: Int) {
+        savedStateHandle[KEY_SCROLL_INDEX] = index.coerceAtLeast(0)
+        savedStateHandle[KEY_SCROLL_OFFSET] = offset.coerceAtLeast(0)
+    }
+
+    private fun updateFilters(
+        debounceMillis: Long = 0L,
+        transform: (ChartQueryFilters) -> ChartQueryFilters,
+    ) {
+        val filters = transform(_uiState.value.filters)
+        if (filters == _uiState.value.filters) return
+        persistFilters(filters)
+        _uiState.update { it.copy(filters = filters) }
+        scheduleQuery(debounceMillis)
+    }
+
+    private fun scheduleQuery(debounceMillis: Long) {
+        val queryEngine = engine ?: return
+        val filters = _uiState.value.filters
+        val currentVersion = indexedCurrentVersion
+        queryJob?.cancel()
+        _uiState.update { it.copy(isFiltering = true) }
+        queryJob = viewModelScope.launch {
+            if (debounceMillis > 0L) delay(debounceMillis)
+            val startedAt = SystemClock.elapsedRealtime()
+            val result = withContext(Dispatchers.Default) {
+                queryEngine.query(filters, currentVersion)
+            }
+            if (engine !== queryEngine || _uiState.value.filters != filters) return@launch
+            Log.i(
+                TAG,
+                "Chart query ready in ${SystemClock.elapsedRealtime() - startedAt}ms: " +
+                    "matches=${result.matchingCount} visible=${result.items.size}",
+            )
+            _uiState.update { it.copy(result = result, isFiltering = false) }
+        }
+    }
+
+    private fun persistFilters(filters: ChartQueryFilters) {
+        savedStateHandle[KEY_SEARCH] = filters.searchQuery
+        savedStateHandle[KEY_LEVEL] = filters.levelQuery
+        savedStateHandle[KEY_DIFFICULTY] = filters.difficulty?.name
+        savedStateHandle[KEY_GENRE] = filters.genre.name
+        savedStateHandle[KEY_VERSION] = filters.version.name
+        savedStateHandle[KEY_STATUS] = filters.status.name
+        savedStateHandle[KEY_SORT] = filters.sort.name
+    }
+
+    private companion object {
+        private const val TAG = "FluentMaiCharts"
+        private const val SEARCH_DEBOUNCE_MILLIS = 180L
+        private const val KEY_SEARCH = "charts.search"
+        private const val KEY_LEVEL = "charts.level"
+        private const val KEY_DIFFICULTY = "charts.difficulty"
+        private const val KEY_GENRE = "charts.genre"
+        private const val KEY_VERSION = "charts.version"
+        private const val KEY_STATUS = "charts.status"
+        private const val KEY_SORT = "charts.sort"
+        private const val KEY_SCROLL_INDEX = "charts.scroll.index"
+        private const val KEY_SCROLL_OFFSET = "charts.scroll.offset"
+
+        private fun restoreFilters(handle: SavedStateHandle): ChartQueryFilters =
+            ChartQueryFilters(
+                searchQuery = handle[KEY_SEARCH] ?: "",
+                levelQuery = handle[KEY_LEVEL] ?: "",
+                difficulty = enumValueOrNull<Difficulty>(handle[KEY_DIFFICULTY]),
+                genre = enumValueOrDefault(handle[KEY_GENRE], ChartGenreFilter.All),
+                version = enumValueOrDefault(handle[KEY_VERSION], ChartVersionFilter.All),
+                status = enumValueOrDefault(handle[KEY_STATUS], ChartStatusFilter.All),
+                sort = enumValueOrDefault(handle[KEY_SORT], ChartSort.ConstantDesc),
+            )
+
+        private inline fun <reified T : Enum<T>> enumValueOrNull(name: String?): T? =
+            name?.let { value -> enumValues<T>().firstOrNull { it.name == value } }
+
+        private inline fun <reified T : Enum<T>> enumValueOrDefault(name: String?, default: T): T =
+            enumValueOrNull<T>(name) ?: default
+    }
+}

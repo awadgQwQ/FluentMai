@@ -3,7 +3,6 @@ package dev.fluentmai.android.feature.scores
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -23,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -40,10 +40,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,14 +55,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.ImageLoader
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
-import coil.request.CachePolicy
 import coil.request.ImageRequest
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.Difficulty
@@ -72,8 +73,7 @@ import dev.fluentmai.android.core.model.maimaiRatedScoreComparator
 import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
 import java.text.Normalizer
 import java.util.Locale
-import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun ScoresScreen(
@@ -161,48 +161,28 @@ fun ChartQueryScreen(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scoreIndex = remember(scores) { ScoreIndex.from(scores) }
-    var searchQuery by remember { mutableStateOf("") }
-    var levelQuery by remember { mutableStateOf("") }
-    var selectedDifficulty by remember { mutableStateOf<Difficulty?>(null) }
-    var genreFilter by remember { mutableStateOf(ChartGenreFilter.All) }
-    var versionFilter by remember { mutableStateOf(ChartVersionFilter.All) }
-    var statusFilter by remember { mutableStateOf(ChartStatusFilter.All) }
-    var sortMode by remember { mutableStateOf(ChartSort.ConstantDesc) }
+    val queryViewModel: ChartQueryViewModel = viewModel()
+    val uiState by queryViewModel.uiState.collectAsState()
+    val filters = uiState.filters
     val currentVersion = remember(majorVersions, charts) {
         resolveCurrentMaimaiVersion(majorVersions, charts)?.majorVersion?.id ?: 0
     }
-
-    val visibleCharts = remember(
-        charts,
-        scores,
-        searchQuery,
-        levelQuery,
-        selectedDifficulty,
-        genreFilter,
-        versionFilter,
-        statusFilter,
-        sortMode,
-        currentVersion,
-    ) {
-        charts
-            .asSequence()
-            .filter { selectedDifficulty == null || it.difficulty == selectedDifficulty }
-            .filter { genreFilter.matches(it) }
-            .filter { versionFilter.matches(it, currentVersion) }
-            .filter { it.matchesLevel(levelQuery) }
-            .filter { it.matchesQuery(searchQuery) }
-            .filter { chart ->
-                val score = scoreIndex.scoreFor(chart)
-                statusFilter.matches(score)
-            }
-            .sortedWith(sortMode.comparator(scoreIndex))
-            .take(500)
-            .toList()
+    SideEffect {
+        queryViewModel.submitCatalog(charts, scores, currentVersion)
+    }
+    val gridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = queryViewModel.restoredScrollIndex,
+        initialFirstVisibleItemScrollOffset = queryViewModel.restoredScrollOffset,
+    )
+    LaunchedEffect(queryViewModel, gridState) {
+        snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
+            .collect { (index, offset) -> queryViewModel.saveScroll(index, offset) }
     }
 
     LazyVerticalGrid(
         modifier = modifier.fillMaxSize(),
+        state = gridState,
         columns = GridCells.Adaptive(340.dp),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -211,27 +191,28 @@ fun ChartQueryScreen(
         item(span = { GridItemSpan(maxLineSpan) }) {
             ChartHeader(
                 chartCount = charts.size,
-                visibleCount = visibleCharts.size,
+                visibleCount = uiState.result.matchingCount,
                 isLoading = isLoading,
+                isFiltering = uiState.isIndexing || uiState.isFiltering,
                 onRefresh = onRefresh,
             )
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             ChartFilters(
-                searchQuery = searchQuery,
-                onSearchQueryChanged = { searchQuery = it },
-                levelQuery = levelQuery,
-                onLevelQueryChanged = { levelQuery = it },
-                selectedDifficulty = selectedDifficulty,
-                onDifficultyChanged = { selectedDifficulty = it },
-                genreFilter = genreFilter,
-                onGenreFilterChanged = { genreFilter = it },
-                versionFilter = versionFilter,
-                onVersionFilterChanged = { versionFilter = it },
-                statusFilter = statusFilter,
-                onStatusFilterChanged = { statusFilter = it },
-                sortMode = sortMode,
-                onSortModeChanged = { sortMode = it },
+                searchQuery = filters.searchQuery,
+                onSearchQueryChanged = queryViewModel::updateSearchQuery,
+                levelQuery = filters.levelQuery,
+                onLevelQueryChanged = queryViewModel::updateLevelQuery,
+                selectedDifficulty = filters.difficulty,
+                onDifficultyChanged = queryViewModel::updateDifficulty,
+                genreFilter = filters.genre,
+                onGenreFilterChanged = queryViewModel::updateGenre,
+                versionFilter = filters.version,
+                onVersionFilterChanged = queryViewModel::updateVersion,
+                statusFilter = filters.status,
+                onStatusFilterChanged = queryViewModel::updateStatus,
+                sortMode = filters.sort,
+                onSortModeChanged = queryViewModel::updateSort,
             )
         }
 
@@ -239,13 +220,22 @@ fun ChartQueryScreen(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 EmptyState(text = "还没有曲库数据")
             }
-        } else if (visibleCharts.isEmpty()) {
+        } else if (uiState.result.items.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                EmptyState(text = if (isLoading) "正在同步曲库" else "没有匹配的谱面")
+                EmptyState(
+                    text = if (isLoading || uiState.isIndexing || uiState.isFiltering) {
+                        "正在准备谱面结果"
+                    } else {
+                        "没有匹配的谱面"
+                    },
+                )
             }
         } else {
-            items(visibleCharts, key = { "${it.songId}-${it.songType}-${it.levelIndex}" }) { chart ->
-                ChartCard(chart = chart, score = scoreIndex.scoreFor(chart))
+            items(
+                uiState.result.items,
+                key = { "${it.chart.songId}-${it.chart.songType}-${it.chart.levelIndex}" },
+            ) { item ->
+                ChartCard(chart = item.chart, score = item.score)
             }
         }
     }
@@ -286,6 +276,7 @@ private fun ChartHeader(
     chartCount: Int,
     visibleCount: Int,
     isLoading: Boolean,
+    isFiltering: Boolean,
     onRefresh: () -> Unit,
 ) {
     OutlinedCard(
@@ -303,7 +294,7 @@ private fun ChartHeader(
                 Text(text = "谱面查询", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MetricChip(label = "曲库", value = if (isLoading) "同步中" else chartCount.toString())
-                    MetricChip(label = "结果", value = visibleCount.toString())
+                    MetricChip(label = "结果", value = if (isFiltering) "筛选中" else visibleCount.toString())
                 }
             }
             IconButton(onClick = onRefresh, modifier = Modifier.size(48.dp)) {
@@ -682,28 +673,16 @@ private fun JacketArt(
         contentAlignment = Alignment.Center,
     ) {
         if (songId != null) {
-            val url = jacketUrl(songId)
             val context = LocalContext.current
-            val imageLoader = remember {
-                createCoilImageLoader(context.applicationContext)
-            }
-
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(url)
-                    .crossfade(300)
+                    .data(jacketUrl(songId))
+                    .size(320)
+                    .crossfade(150)
                     .build(),
-                imageLoader = imageLoader,
                 contentDescription = "$title 曲绘",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                onSuccess = {
-                    Log.d("FluentMaiJacket", "OK  songId=$songId title=$title")
-                },
-                onError = { error ->
-                    val throwable = error.result.throwable
-                    Log.w("FluentMaiJacket", "FAIL songId=$songId title=$title url=$url error=${throwable?.javaClass?.simpleName}: ${throwable?.message}")
-                },
             )
         } else {
             Text(
@@ -713,23 +692,6 @@ private fun JacketArt(
             )
         }
     }
-}
-
-private fun createCoilImageLoader(context: Context): ImageLoader {
-    val loggingInterceptor = HttpLoggingInterceptor { message ->
-        Log.d("FluentMaiJacket", message)
-    }.apply { level = HttpLoggingInterceptor.Level.BASIC }
-
-    val okHttpClient = OkHttpClient.Builder()
-        .proxy(java.net.Proxy.NO_PROXY)
-        .addNetworkInterceptor(loggingInterceptor)
-        .build()
-
-    return ImageLoader.Builder(context)
-        .callFactory(okHttpClient)
-        .diskCachePolicy(CachePolicy.ENABLED)
-        .memoryCachePolicy(CachePolicy.ENABLED)
-        .build()
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -941,100 +903,6 @@ private enum class ScoreMode(val label: String) {
     All("全部成绩"),
 }
 
-private enum class ChartStatusFilter(val label: String) {
-    All("全部"),
-    Played("已游玩"),
-    Missing("未游玩");
-
-    fun matches(score: ScoreRecord?): Boolean =
-        when (this) {
-            All -> true
-            Played -> score != null
-            Missing -> score == null
-        }
-}
-
-private enum class ChartGenreFilter(val label: String) {
-    All("全部分区"),
-    Maimai("舞萌区"),
-    OngekiChunithm("中二/音击区"),
-    VocaloidNiconico("VOCALOID & NICONICO"),
-    Touhou("东方区"),
-    GameVariety("GAME & VARIETY"),
-    PopsAnime("POPS & ANIME"),
-    Utage("宴会场");
-
-    fun matches(chart: ChartRecord): Boolean {
-        val genre = normalizeQuery(chart.genre)
-        return when (this) {
-            All -> true
-            Maimai -> genre == "maimai"
-            OngekiChunithm -> genre.contains("オンゲキ") || genre.contains("chunithm") || genre.contains("中二") || genre.contains("音击")
-            VocaloidNiconico -> genre.contains("vocaloid") || genre.contains("niconico") || genre.contains("ボーカロイド")
-            Touhou -> genre.contains("東方") || genre.contains("东方")
-            GameVariety -> genre.contains("ゲーム") || genre.contains("バラエティ") || genre.contains("game") || genre.contains("variety")
-            PopsAnime -> genre.contains("pops") || genre.contains("アニメ") || genre.contains("anime")
-            Utage -> genre.contains("宴会") || genre.contains("utage")
-        }
-    }
-}
-
-private enum class ChartVersionFilter(val label: String) {
-    All("全部版本"),
-    Current("当前版本"),
-    Dx2025("DX 2025"),
-    Dx2024("DX 2024"),
-    Dx2023("DX 2023"),
-    Finale("FiNALE"),
-    Classic("旧框");
-
-    fun matches(chart: ChartRecord, currentVersion: Int): Boolean =
-        when (this) {
-            All -> true
-            Current -> currentVersion > 0 && chart.songVersion == currentVersion
-            Dx2025 -> chart.songVersion in 25000 until 25500
-            Dx2024 -> chart.songVersion in 24000 until 25000
-            Dx2023 -> chart.songVersion in 23000 until 24000
-            Finale -> chart.songVersion in 19900 until 20000 || chart.chartVersion in 19900 until 20000
-            Classic -> chart.songVersion in 1 until 20000
-        }
-}
-
-private enum class ChartSort(val label: String) {
-    ConstantDesc("定数降序"),
-    ConstantAsc("定数升序"),
-    VersionDesc("上线新到旧"),
-    VersionAsc("上线旧到新"),
-    AchievementAsc("成绩升序"),
-    AchievementDesc("成绩降序"),
-    TitleAsc("曲名升序"),
-    TitleDesc("曲名降序");
-
-    fun comparator(scoreIndex: ScoreIndex): Comparator<ChartRecord> =
-        when (this) {
-            ConstantDesc -> compareByDescending<ChartRecord> { it.levelValue ?: -1.0 }
-                .thenByDescending { it.levelIndex }
-                .thenBy { it.title }
-            ConstantAsc -> compareBy<ChartRecord> { it.levelValue ?: 999.0 }
-                .thenBy { it.levelIndex }
-                .thenBy { it.title }
-            VersionDesc -> compareByDescending<ChartRecord> { it.chartVersion }
-                .thenByDescending { it.songVersion }
-                .thenByDescending { it.levelValue ?: -1.0 }
-            VersionAsc -> compareBy<ChartRecord> { it.chartVersion }
-                .thenBy { it.songVersion }
-                .thenBy { it.levelValue ?: 999.0 }
-            AchievementAsc -> compareBy<ChartRecord> { scoreIndex.scoreFor(it)?.achievement ?: 999.0 }
-                .thenByDescending { it.levelValue ?: -1.0 }
-            AchievementDesc -> compareByDescending<ChartRecord> { scoreIndex.scoreFor(it)?.achievement ?: -1.0 }
-                .thenByDescending { it.levelValue ?: -1.0 }
-            TitleAsc -> compareBy<ChartRecord> { normalizeQuery(it.title) }
-                .thenByDescending { it.levelValue ?: -1.0 }
-            TitleDesc -> compareByDescending<ChartRecord> { normalizeQuery(it.title) }
-                .thenByDescending { it.levelValue ?: -1.0 }
-        }
-}
-
 private fun MaimaiRatedScore.matches(query: String): Boolean {
     if (query.isBlank()) return true
     val normalized = normalizeQuery(query)
@@ -1049,71 +917,6 @@ private fun MaimaiRatedScore.matches(query: String): Boolean {
     ).any { normalizeQuery(it).contains(normalized) }
 }
 
-private data class ScoreKey(
-    val title: String,
-    val songType: SongType,
-    val levelIndex: Int,
-) {
-    companion object {
-        fun fromScore(score: ScoreRecord): ScoreKey =
-            ScoreKey(normalizeQuery(score.title), score.songType, score.levelIndex)
-
-        fun fromChart(chart: ChartRecord): ScoreKey =
-            ScoreKey(normalizeQuery(chart.title), chart.songType, chart.levelIndex)
-    }
-}
-
-private data class ScoreSongIdKey(
-    val songId: Int,
-    val songType: SongType,
-    val levelIndex: Int,
-)
-
-private data class ScoreTitleDifficultyKey(
-    val title: String,
-    val songType: SongType,
-    val levelIndex: Int,
-)
-
-private data class ScoreIndex(
-    private val exact: Map<ScoreKey, ScoreRecord>,
-    private val bySongId: Map<ScoreSongIdKey, ScoreRecord>,
-    private val byTitleDifficulty: Map<ScoreTitleDifficultyKey, ScoreRecord>,
-) {
-    fun scoreFor(chart: ChartRecord): ScoreRecord? =
-        exact[ScoreKey.fromChart(chart)]
-            ?: bySongId[ScoreSongIdKey(chart.songId, chart.songType, chart.levelIndex)]
-            ?: byTitleDifficulty[ScoreTitleDifficultyKey(normalizeQuery(chart.title), chart.songType, chart.levelIndex)]
-
-    companion object {
-        fun from(scores: List<ScoreRecord>): ScoreIndex =
-            ScoreIndex(
-                exact = scores.bestBy { ScoreKey.fromScore(it) },
-                bySongId = scores
-                    .mapNotNull { score -> score.songId?.let { ScoreSongIdKey(it, score.songType, score.levelIndex) to score } }
-                    .bestPairs(),
-                byTitleDifficulty = scores.bestBy {
-                    ScoreTitleDifficultyKey(normalizeQuery(it.title), it.songType, it.levelIndex)
-                },
-            )
-
-        private fun <K> List<ScoreRecord>.bestBy(keySelector: (ScoreRecord) -> K): Map<K, ScoreRecord> =
-            groupBy(keySelector).mapValues { (_, records) -> records.bestScore() }
-
-        private fun <K> List<Pair<K, ScoreRecord>>.bestPairs(): Map<K, ScoreRecord> =
-            groupBy({ it.first }, { it.second }).mapValues { (_, records) -> records.bestScore() }
-
-        private fun List<ScoreRecord>.bestScore(): ScoreRecord =
-            maxWithOrNull(
-                compareBy<ScoreRecord> { it.achievement }
-                    .thenBy { it.dxScore ?: -1 },
-            ) ?: first()
-    }
-}
-
-internal fun scoreForChartForTest(scores: List<ScoreRecord>, chart: ChartRecord): ScoreRecord? =
-    ScoreIndex.from(scores).scoreFor(chart)
-
 private fun enrichScores(scores: List<ScoreRecord>, charts: List<ChartRecord>): List<MaimaiRatedScore> {
     val chartMap = charts.associateBy { ScoreKey.fromChart(it) }
     return scores.map { score ->
@@ -1125,68 +928,6 @@ private fun enrichScores(scores: List<ScoreRecord>, charts: List<ChartRecord>): 
         )
     }
 }
-
-private fun ChartRecord.matchesLevel(query: String): Boolean {
-    val trimmed = query.trim()
-    if (trimmed.isBlank()) return true
-    val numeric = trimmed.toDoubleOrNull()
-    if (numeric != null && trimmed.contains(".")) {
-        return levelValue?.let { kotlin.math.abs(it - numeric) < 0.0001 } == true
-    }
-
-    val normalized = normalizeQuery(trimmed)
-    val isPlusLevel = normalized.endsWith("+")
-    val baseLevel = normalized.removeSuffix("+").toIntOrNull()
-    if (baseLevel != null) {
-        if (level.equals(trimmed, ignoreCase = true)) return true
-        val value = levelValue ?: return false
-        return if (isPlusLevel) {
-            value >= baseLevel + 0.6 - 0.0001 && value <= baseLevel + 0.9 + 0.0001
-        } else {
-            value >= baseLevel.toDouble() - 0.0001 && value <= baseLevel + 0.5 + 0.0001
-        }
-    }
-
-    return level.equals(trimmed, ignoreCase = true)
-}
-
-private fun ChartRecord.matchesQuery(query: String): Boolean {
-    if (query.isBlank()) return true
-    val normalized = normalizeQuery(query)
-    val designerAliases = designerAliasesFor(normalized)
-    val fields = listOf(
-        title,
-        artist,
-        genre,
-        noteDesigner,
-        songVersionName.orEmpty(),
-        chartVersionName.orEmpty(),
-        bpm?.toString().orEmpty(),
-    ).map(::normalizeQuery)
-    return fields.any { it.contains(normalized) } ||
-        designerAliases.any { alias -> fields.any { it.contains(alias) } }
-}
-
-private fun designerAliasesFor(query: String): Set<String> =
-    when {
-        query.contains("沙发太") || query.contains("沙發太") ->
-            setOf("サファ太").map(::normalizeQuery).toSet()
-        query.contains("哈皮") ->
-            setOf("はっぴー").map(::normalizeQuery).toSet()
-        query.contains("7.3") ||
-            query.contains("7_3") ||
-            query.contains("shichimi") ||
-            query.contains("シチミ") ||
-            query.contains("七味") ->
-            setOf(
-                "7.3ghz",
-                "シチミッピー",
-                "シチミヘルツ",
-                "しちみへるつ",
-                "超七味星人",
-            ).map(::normalizeQuery).toSet()
-        else -> emptySet()
-    }
 
 private fun ScoreRecord.rankName(): String =
     when {
@@ -1276,5 +1017,5 @@ private fun Double.formatConst(): String =
 private fun jacketUrl(songId: Int): String =
     "https://assets2.lxns.net/maimai/jacket/$songId.png"
 
-private fun normalizeQuery(value: String): String =
+internal fun normalizeQuery(value: String): String =
     Normalizer.normalize(value.trim(), Normalizer.Form.NFKC).lowercase(Locale.ROOT)
