@@ -17,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -63,6 +64,7 @@ import dev.fluentmai.android.core.upload.MaimaiUploadProgress
 import dev.fluentmai.android.core.upload.MaimaiUploadResult
 import dev.fluentmai.android.feature.importflow.ImportScreen
 import dev.fluentmai.android.feature.scores.ChartQueryScreen
+import dev.fluentmai.android.feature.scores.PlayerRecordsScreen
 import dev.fluentmai.android.feature.scores.ScoresScreen
 import dev.fluentmai.android.feature.settings.SettingsScreen
 import dev.fluentmai.android.vpn.core.LocalVpnService
@@ -695,6 +697,13 @@ private fun FluentMaiApp(
                 modifier = modifier,
             )
 
+            AppTab.Records -> PlayerRecordsScreen(
+                scores = scores,
+                charts = chartRecords,
+                majorVersions = chartMajorVersions,
+                modifier = modifier,
+            )
+
             AppTab.Settings -> SettingsScreen(
                 appVersion = APP_VERSION,
                 quarantineCount = quarantineCount,
@@ -780,6 +789,7 @@ private enum class AppTab(
     val icon: ImageVector,
 ) {
     Home("首页", Icons.Filled.Home),
+    Records("记录", Icons.Filled.Assessment),
     Import("导入", Icons.Filled.PlayArrow),
     Charts("谱面", Icons.Filled.Search),
     Settings("设置", Icons.Filled.Settings),

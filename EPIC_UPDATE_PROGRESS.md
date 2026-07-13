@@ -7,7 +7,7 @@
 - 阶段一：现状审计与性能基线已完成。
 - 任务开始前的工作树与审计记录均已保存为独立 checkpoint。
 - P0 版本语义、B15 正确性、曲库缓存保护、隐私边界、谱面性能与页面状态均已实现并通过 JVM、构建与真机覆盖安装验证。
-- 正在保存谱面性能与状态稳定 checkpoint；下一步进入 Android P1 产品能力更新。
+- Android P1 玩家记录与数据驱动牌子进度已完成；正在保存稳定 checkpoint，下一步扩展别名搜索、稳定谱面身份与统一详情页。
 
 ## 任务约束
 
@@ -431,6 +431,34 @@ Debug APK：
 - 日志只包含不带查询内容的索引/结果数量与耗时；未再出现逐曲绘网络日志。
 - 覆盖安装后 SQLite `integrity_check=ok`、`user_version=5`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义指纹全部与基线逐字节一致；临时数据库副本已删除。
 
+## P1：玩家记录与牌子进度
+
+实现：
+
+- 在 `core:model` 建立公开稳定的 `ChartIdentity(songId, songType, difficulty)`；Room 自增主键不参与身份。成绩优先按官方 Song ID、SD/DX 与难度匹配，标题降级只在标题/类型/难度唯一时使用，同名歧义不再猜测或复用一条成绩。
+- 建立玩家记录领域目录、成绩等级、FC/FC+/AP/AP+、SYNC/FS/FS+/FSD/FSD+ 规范化、单曲 Rating、统计、组合筛选与确定性排序；5,360 张谱面的映射和过滤均在后台线程执行。
+- 玩家记录支持曲名/曲师/谱师/类别/ID 搜索，版本、定数范围、显示等级、难度、类别、SD/DX、成绩等级、FC、FS、已/未游玩、当前/旧版本和牌子阻塞条件组合筛选；支持 Rating、达成率、定数、等级、曲名、版本与歌曲 ID 排序。没有可靠新增时间字段，因此未伪造“最近新增”排序。
+- 统计随筛选条件同步更新，覆盖全部成绩等级与数据模型支持的 FC/FS 状态；未映射成绩单独计数。
+- 实现将、极、神、舞舞、霸者领域规则与进度：要求谱面总数、完成数、剩余数、百分比、阻塞谱面、当前成绩和差距均由真实曲库/成绩计算。
+- 牌子页支持版本、难度、类型、只看未完成/显示全部和按等级分组、曲名、歌曲 ID 排序；版本/曲库缺失时显示“数据不足”，不会宣布完成。
+- 筛选与牌子页面状态保存在 `SavedStateHandle`；使用可写入 Bundle 的稳定字符串列表 key，Tab 往返后牌子状态保持。
+- 规则与边界记录在 `docs/PLATE_RULES.md`。来源为 SEGA 官方 2020-01-15 牌子公告与官方国际版玩法说明：
+  - <https://maimai.sega.jp/news/2020-01-15/>
+  - <https://maimai.sega.com/play/howto/>
+
+验证：
+
+- `\.\gradlew.bat test :app:assembleDebug --console=plain`：`BUILD SUCCESSFUL`；35 suites / 167 tests / 0 failures / 0 errors / 0 skipped。
+- Debug APK：33,747,410 bytes；SHA-256 `2B2E7050FDD2F5E0AF54DBCC1F4E3B057183CF8F42BFD0AB02EB51B223EC0F64`。
+- 真机 serial `2923ae26` 使用 `adb install -r` 覆盖安装成功；没有卸载或清除数据，首次安装时间仍为 `2026-06-29 02:36:58`，最终冷启动 `TotalTime=702ms`。
+- 真机玩家记录显示 5,360 张谱面、1,618 张唯一映射已游玩、3,742 张未游玩；1 条同名歧义成绩明确保留为未映射，没有被错误复用，数据库中的 1,619 条成绩均未删除或修改。
+- “玩家记录 → 牌子进度 → 首页 → 玩家记录”往返后仍停留牌子页；进程存活，清空后的 events 日志 `am_crash` 为 0。
+- 真机牌子页按当前有效曲库计算“舞萌 DX 2026 将”为 17 / 92、剩余 75；阻塞谱面展示当前达成率与到 SSS 的差距，未出现虚假完成。
+- SQLite `integrity_check=ok`、`user_version=5`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义指纹全部与基线逐字节一致；临时数据库副本已删除。
+- 界面证据：
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p1_player_records.png`
+  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p1_plate_progress.png`
+
 ## Checkpoint commits
 
 - `2670892c6ec309d7f628660072bc9dba67980ff8` — `chore: checkpoint pre-epic working tree`
@@ -449,6 +477,10 @@ Debug APK：
   - 停止新增 Token 与原始 HTML 持久化，保留旧 Room v5 schema 与设备既有缓存；
   - 移除 destructive migration 降级并补齐源码边界、旧行保留测试；
   - checkpoint 当时 149 项测试通过，真机覆盖安装后导入数据、旧私密缓存元数据和语义指纹均保持不变。
+- `cc9aa8d2728122f3af4c7f71bb7912a6d73f6fc4` — `perf: retain and index chart query state`
+  - 谱面查询索引、后台过滤、搜索 debounce 与统一图片加载器完成；
+  - 筛选、排序、滚动和 Tab/配置恢复状态迁入 `SavedStateHandle`；
+  - checkpoint 当时 157 项测试通过，首次进入、滚动和搜索 jank 均改善且用户数据指纹不变。
 
 ## 最终结果
 
