@@ -1,0 +1,369 @@
+# FluentMai Epic Update Progress
+
+更新时间：2026-07-14（Asia/Shanghai）
+
+## 当前阶段
+
+- 阶段一：现状审计与性能基线已完成。
+- 本任务尚未修改产品源代码；任务开始前的工作树已保存为独立 pre-epic checkpoint。
+- 即将进入 P0：版本语义/B15 正确性、隐私边界、曲库缓存保护、谱面性能与页面状态。
+
+## 任务约束
+
+- Android 是绝对主交付，iOS MVP 是次级交付。
+- 不 push。
+- 不卸载设备上的 FluentMai。
+- 不清除应用数据、数据库、登录状态或成绩。
+- 不主动重写 Android 导入流程。
+- 不修改只读参考仓库 `D:\Code\MaiproberPlus`。
+- 参考截图只表达需求和信息架构，不复制第三方应用视觉设计。
+
+## Git 基线
+
+- 仓库：`D:\Code\FluentMai-Android`
+- 分支：`master`
+- upstream：`origin/master`
+- starting commit：`da35826f003bb6347350eca07b91fed3cf0e76ed`
+- starting commit subject：`docs: refresh bilingual project presentation`
+- starting commit time：`2026-07-05T03:10:19+08:00`
+- 初始 staged 修改：无
+- 初始 tracked 修改：45 个文件
+- 初始 untracked 路径：3 个
+- `AGENTS.md`：仓库及其上级目录均未发现
+- push：未执行
+
+任务开始时的原始 `git status --short --branch`：
+
+```text
+## master...origin/master
+ M app/build.gradle.kts
+ M app/src/main/AndroidManifest.xml
+ M app/src/main/java/dev/fluentmai/android/vpn/core/Constant.java
+ M app/src/main/java/dev/fluentmai/android/vpn/core/DnsProxy.java
+ M app/src/main/java/dev/fluentmai/android/vpn/core/HttpHostHeaderParser.java
+ M app/src/main/java/dev/fluentmai/android/vpn/core/LocalVpnService.java
+ M app/src/main/java/dev/fluentmai/android/vpn/core/NatSession.java
+ M app/src/main/java/dev/fluentmai/android/vpn/core/NatSessionManager.java
+ M app/src/main/java/dev/fluentmai/android/vpn/core/ProxyConfig.java
+ M app/src/main/java/dev/fluentmai/android/vpn/core/TcpProxyServer.java
+ M app/src/main/java/dev/fluentmai/android/vpn/core/TunnelFactory.java
+ M app/src/main/java/dev/fluentmai/android/vpn/dns/DnsFlags.java
+ M app/src/main/java/dev/fluentmai/android/vpn/dns/DnsHeader.java
+ M app/src/main/java/dev/fluentmai/android/vpn/dns/DnsPacket.java
+ M app/src/main/java/dev/fluentmai/android/vpn/dns/Question.java
+ M app/src/main/java/dev/fluentmai/android/vpn/dns/Resource.java
+ M app/src/main/java/dev/fluentmai/android/vpn/dns/ResourcePointer.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tcpip/CommonMethods.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tcpip/IPHeader.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tcpip/TCPHeader.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tcpip/UDPHeader.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tunnel/Config.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tunnel/HttpCapturerTunnel.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tunnel/RawTunnel.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tunnel/Tunnel.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tunnel/httpconnect/HttpConnectConfig.java
+ M app/src/main/java/dev/fluentmai/android/vpn/tunnel/httpconnect/HttpConnectTunnel.java
+ M app/src/main/kotlin/dev/fluentmai/android/MainActivity.kt
+ M app/src/main/kotlin/dev/fluentmai/android/WahlapWechatAuthUrlClient.kt
+ M app/src/main/res/values/arrays.xml
+ M app/src/main/res/values/strings.xml
+ M app/src/test/java/dev/fluentmai/android/vpn/tunnel/HttpCapturerTunnelTest.java
+ M core/database/src/main/kotlin/dev/fluentmai/android/core/database/FluentMaiDatabase.kt
+ M core/database/src/main/kotlin/dev/fluentmai/android/core/database/FluentMaiRepository.kt
+ M core/database/src/main/kotlin/dev/fluentmai/android/core/database/RoomImportPersistence.kt
+ M core/database/src/test/kotlin/dev/fluentmai/android/core/database/RoomImportPersistenceTest.kt
+ M core/importer/src/main/kotlin/dev/fluentmai/android/core/importer/ImportPersistence.kt
+ M core/importer/src/test/kotlin/dev/fluentmai/android/core/importer/RealWahlapImportAdapterTest.kt
+ M core/importer/src/test/kotlin/dev/fluentmai/android/core/importer/WahlapFixtureParserTest.kt
+ M feature/home/src/main/kotlin/dev/fluentmai/android/feature/home/HomeScreen.kt
+ M feature/import/build.gradle.kts
+ M feature/import/src/main/kotlin/dev/fluentmai/android/feature/importflow/ImportScreen.kt
+ M feature/quarantine/src/main/kotlin/dev/fluentmai/android/feature/quarantine/QuarantineScreen.kt
+ M feature/settings/build.gradle.kts
+ M feature/settings/src/main/kotlin/dev/fluentmai/android/feature/settings/SettingsScreen.kt
+?? app/src/main/kotlin/dev/fluentmai/android/WahlapCookieStore.kt
+?? core/importer/src/test/kotlin/dev/fluentmai/android/core/importer/MaimaiSongCatalogTest.kt
+?? feature/import/src/test/
+```
+
+差异规模：
+
+- 原始 diff：3,433 insertions / 2,648 deletions，45 个 tracked 文件。
+- 忽略行尾差异后：1,156 insertions / 371 deletions，25 个 tracked 文件仍有实质改动。
+- 大量 VPN Java 文件主要是 CRLF/LF 变化；`core.autocrlf=true`，仓库 `.gitattributes` 对 Java 仅使用 `text=auto`。
+- 实质改动覆盖 `MainActivity`、Room、导入、设置、Hook/VPN、测试和资源；这些区域与本次 P0/P1 会直接重叠。
+
+## 工具链基线
+
+- Gradle wrapper：8.9
+- Android Gradle Plugin：8.7.3
+- Kotlin plugins：2.0.21
+- KSP：2.0.21-1.0.27
+- Java launcher / daemon：Oracle JDK 22.0.2
+- 编译目标：Java 17 / Kotlin JVM target 17
+- Compose BOM：2024.10.00
+- Room：2.6.1
+- Coroutines：1.9.0
+- Ktor：3.0.1
+- Coil：2.7.0
+- compileSdk：34
+- targetSdk：34
+- minSdk：26
+- applicationId / namespace：`dev.fluentmai.android`
+- app version：`0.1.0`（versionCode 1）
+- Room 数据库名：`fluentmai-phase0.db`
+- Room schema version：5
+
+## 当前架构审计
+
+- `app`：单 Activity、底部导航、平台网络、Hook/VPN、曲库缓存和上传编排。
+- `core:model`：纯 JVM 模型，可作为后续共享领域层候选。
+- `core:importer`：纯 JVM，但依赖 `org.json`、Jsoup 和部分 JVM API；若迁移 KMP 需要逐步替换或包裹。
+- `core:database`：Android Room，本次应保留为 Android source of truth，不进行激进替换。
+- `feature:scores`：B50、谱面查询、筛选、Rating 和曲绘均集中在一个约 1,300 行文件中。
+- `MainActivity.kt`：约 992 行，持有导航、数据库状态、导入、上传和曲库刷新状态，存在 God Activity/状态所有权过重风险。
+- 当前没有 `iosApp`、KMP shared module、Compose Multiplatform 模块或 macOS CI。
+- 最低风险跨平台方向：先抽取版本归一化、B35/B15、搜索、Rating、牌子和推荐等纯领域逻辑；Room、Android 导入、Activity/Intent/VPN 保持 Android 专属。
+
+## 曲库、B15 与真实根因证据
+
+数据链路：
+
+```text
+LXNS song list API
+→ SongCatalogStore 文件缓存 / bundled fallback
+→ MaimaiSongCatalog 解析 songVersion 与 chartVersion
+→ MainActivity 将全部 ChartRecord 保存在内存
+→ ScoresScreen.enrichScores 按 title + SD/DX + levelIndex 关联成绩
+→ buildBestSet 以 charts.maxOf(chartVersion) 作为 current version
+→ 仅 chartVersion 完全等于该最大值的成绩进入 B15
+```
+
+已证明的根因：
+
+- 当前代码把 `chartVersion` 的最大精确值当作“中国大陆当前运营大版本”。
+- 设备缓存中最大的 `chartVersion` 是 `25501`；它没有版本名称，表现为内容批次/未来批次，而不是版本表中的大版本基准。
+- `25501` 有未来谱面，但设备成绩中没有任何一条匹配该精确版本。
+- 因而现有算法得到：B35 35 张 / 10435，B15 0 张 / 0，总 Rating 10435；与真机首页一致。
+- 版本表中的 `25500` 名称为“舞萌DX 2026”，设备有 27 条匹配成绩；若仅用它做当前候选验证，则 B15 可取 15 张 / 4225，总 Rating 14655。
+- 以上 `25500` 结果只作为根因证明和候选验证，不能把“最高有成绩版本”硬编码为最终当前版本定义。最终实现需要显式区分大版本、内容批次、国服运营状态和未来谱面，并补齐回归测试。
+
+2026-07-14 公开来源复核：
+
+- 舞萌DX 官方 Bilibili 账号（账号说明为“舞萌DX街机音游B站官方账号”）在 2026-05-26 发布“舞萌DX 2026版本升级预告”；
+- 该官方账号在 2026-06-24 公告 2026-06-29 后机台版本由 `Ver.CN1.55-A` 变更为 `Ver.CN1.56-A`；截至本次检索没有发现更晚的官方机台版本变更公告；
+- LXNS 当前 API 文档把舞萌曲目、Trend 和收藏品等接口的默认 `version` 明确列为 `25500`，并把 `Version.version` 定义为“主要版本 ID”；
+- 现场请求公开 song list API 得到 20 个主要版本，最大已命名版本为 `25500 / 舞萌DX 2026`；`25501` 不在主要版本表中；
+- 同一现场快照中，`25500` 有 26 首曲目、92 张谱面，`25501` 有 11 首曲目、38 张谱面。`locked` 字段按官方文档仅表示“是否需要解锁”，不能用作上线状态。
+
+来源：
+
+- `https://space.bilibili.com/481648327/`
+- `https://www.bilibili.com/opus/1206651919178661888`
+- `https://www.bilibili.com/opus/1217391302331596800`
+- `https://maimai.lxns.net/docs/api/maimai`
+- `https://maimai.lxns.net/api/v0/maimai/song/list?notes=true`
+
+结论：截至 2026-07-14，中国大陆当前运营大版本可以有来源地确定为“舞萌DX 2026”，对应 LXNS 主要版本 ID `25500`；`25501` 不能被解释为一个新的运营大版本。它所代表内容的具体上线状态仍不能从当前 API 字段可靠推出，正式实现必须保留 `unknown/upcoming/available` 的显式状态和可更新来源，而不是把 `locked`、最大值或玩家是否有成绩当作上线证据。
+
+另外发现：
+
+- `ChartVersionFilter.Current` 也直接使用 `charts.maxOf(songVersion)`，同样混淆快照/内容批次和运营大版本。
+- `SongCatalogStore.refreshFromNetwork()` 在解析后直接覆盖有效缓存；当前解析器对缺少 `songs` 的 JSON 返回空 catalog 而不抛错，存在空/不完整远程数据覆盖有效缓存的风险。
+
+## 谱面性能与页面状态根因
+
+- 曲库在 `MainActivity` 中一次性解析并持有 5,360 个 `ChartRecord`。
+- 谱面页每次输入或筛选变化都在 Composable 侧同步遍历、标准化、排序全部谱面，再 `take(500)`。
+- 搜索没有 debounce。
+- `JacketArt` 在每个卡片实例中各自 `remember` 一个新的 Coil `ImageLoader` 和 OkHttpClient，不能有效共享内存缓存和连接池。
+- 每次曲绘成功/失败及 OkHttp BASIC 请求都会写日志。
+- 搜索、等级、难度、类别、版本、游玩状态、排序和 LazyGrid 状态只存于局部 `remember`。
+- `MainActivity` 的 `when (selectedTab)` 会移除当前页面 composition；返回谱面页后局部状态被重建。
+- 没有 Screen ViewModel、`SavedStateHandle`、持久化筛选状态或显式列表状态。
+
+## 测试与构建基线
+
+已执行：
+
+1. `\.\gradlew.bat test --console=plain`
+   - exit code：0
+2. `\.\gradlew.bat :app:assembleDebug --console=plain`
+   - exit code：0
+   - 编译提示：`LocalVpnService.java` 使用或覆盖已过时 API。
+
+Gradle XML 汇总：
+
+- test suites：25（Android library 的 debug/release 变体会重复运行同一测试类）
+- tests：134
+- failures：0
+- errors：0
+- skipped：0
+
+Debug APK：
+
+- 路径：`D:\Code\FluentMai-Android\app\build\outputs\apk\debug\app-debug.apk`
+- 大小：28,437,980 bytes
+- SHA-256：`CC70E1F62FB5212E5F90C2E7AFD2666FBD09A08B50BE55A9F36211D26CDE9954`
+- 当前构建任务判定产物为 up-to-date。
+
+在凭证/隐私扫描和公开版本复核完成后，于 2026-07-14 再次顺序执行同样的 `test` 与 `:app:assembleDebug` 命令：两者均 `BUILD SUCCESSFUL`；XML 仍为 25 suites / 134 tests / 0 failures / 0 errors / 0 skipped，APK 大小与 SHA-256 未变化。没有执行 `clean`、安装、卸载或清除数据。
+
+尚未执行：
+
+- `connectedDebugAndroidTest`：仓库没有 `androidTest` 源集测试；基线阶段未为此覆盖安装应用。
+- iOS Simulator / macOS CI：当前没有 iOS 工程或 workflow。
+
+## ADB 与设备基线
+
+- ADB：1.0.41 / platform-tools 37.0.0
+- 设备数：1，已授权
+- serial：`2923ae26`
+- manufacturer：Xiaomi
+- model：23116PN5BC
+- Android：16
+- physical size：1440×3200
+- override size：1080×2400
+- physical density：560
+- override density：420
+- 已安装包：`dev.fluentmai.android`
+- 已安装版本：0.1.0 / versionCode 1
+- 首次安装：2026-06-29 02:36:58
+- 最近更新：2026-07-03 03:52:33
+- 包可调试：是，`run-as` 可用
+- 本地 Debug APK 与已安装 APK 的 signer SHA-256 均为：`504c3093d1a6d00f1c0eacdbc99b7dc064e95ef72dbc38918261375257917460`
+- 签名冲突：无
+- 覆盖安装：签名层面可行，但基线阶段未执行安装
+- uninstall：未执行
+- clear data / clear database：未执行
+
+## 设备数据完整性基线
+
+- SQLite `integrity_check`：`ok`
+- `PRAGMA user_version`：5
+- 数据库主文件：6,135,808 bytes
+- WAL：0 bytes
+- score records：1,619
+- quarantine records：9,983
+- import batches：29
+- cached Wahlap score pages：5
+- score semantic SHA-256：`e80e3d1f91117af799b4eb63e2b9203336bc9919243bac36aef19e44a0cc1991`
+- quarantine semantic SHA-256：`cf8d21c506aabede62b6fed1a10a2e888bdf39dd8acf7de5997b2a23924e0799`
+- import batch semantic SHA-256：`b13da25b612c298edc0a6393608890f99ced6e2275d1847c63dbfff1d36c76cc`
+- 临时数据库副本已删除；未输出真实曲名、成绩明细、HTML 或认证内容。
+
+## 真机性能基线
+
+冷启动与数据就绪：
+
+- `am start -W` LaunchState：COLD
+- Activity TotalTime：566ms
+- Activity WaitTime：571ms
+- Room 成绩/隔离状态加载：489ms
+- 本地曲库：1,302 首 / 5,360 张谱面，455ms
+- Rating 数据 ready：1,762ms
+- 启动阶段 frames：53
+- janky frames：4（7.55%）
+- 50/90/95/99 percentile：8 / 200 / 250 / 400ms
+
+谱面页切换：
+
+- frames：52
+- janky frames：1（1.92%）
+- 50/90/95/99 percentile：7 / 65 / 85 / 1050ms
+- 存在一帧约 1,050ms 的长帧。
+
+谱面页连续 10 次滑动：
+
+- frames：514
+- janky frames：5（0.97%）
+- 50/90/95/99 percentile：8 / 65 / 85 / 150ms
+- missed vsync：3
+- slow UI thread：3
+
+搜索 `PANDORA`：
+
+- ADB 输入命令：860ms（包含输入注入，不等同于纯查询耗时）
+- 结果：5
+- frames：58
+- janky frames：12（20.69%）
+- 50/90/95/99 percentile：31 / 113 / 117 / 150ms
+- slow UI thread：6
+- slow issue draw commands：7
+
+状态恢复复现：
+
+```text
+谱面页搜索 PANDORA（结果 5）
+→ 切到首页
+→ 返回谱面页
+→ 搜索框清空，结果恢复为 500
+```
+
+基线截图：
+
+- `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\baseline_home.png`
+- `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\baseline_charts.png`
+
+## 只读参考仓库
+
+- `D:\Code\MaiproberPlus`
+- 分支：`lab/current-wahlap-sync`
+- commit：`bf4a6e179758ffa9cde89ec099ac9afd90dd07fa`
+- worktree：干净
+- 本阶段未修改该仓库。
+
+## UI/UX 基线决定
+
+- 参考截图只提取能力、信息层级和交互需求。
+- 不复制 EasyMai / RankHub 的具体深色紫色视觉、弹窗布局或卡片样式。
+- 保留 FluentMai 当前青绿/琥珀色彩语言，并优先满足对比度、44–48dp 触控目标、稳定焦点、响应式布局与统一图标体系。
+- 第三方截图中的 Emoji 工具图标不沿用，使用一致的 Material/SVG 图标。
+
+## 凭证与隐私审计
+
+对任务开始前的实质 diff 新增行和 3 个既有 untracked 文件执行了不输出匹配内容的凭证扫描：
+
+- 扫描实质新增行：`1156`；
+- 扫描既有 untracked 文件：`3`；
+- 私钥、AWS/GitHub/GitLab/Slack/Google key、JWT、带凭证 URL、明显字面量凭证赋值命中：`0`；
+- `.env`、keystore、PEM、私钥或 `google-services.json` 等敏感路径命中：`0`；
+- 未读取或输出设备中的 Token、Cookie、HTML 内容。
+
+但是，既有未提交实现与仓库隐私契约存在直接冲突：
+
+- `MainActivity.kt` 把水鱼/LXNS Token 写入普通 `SharedPreferences`；
+- `MainActivity.kt` 把 Wahlap 调试页和补充页原始 HTML 写入内部文件；
+- Room v5 新增 `wahlap_score_pages.html`，repository 与测试明确保存并恢复原始 HTML；
+- `README.md`、`README.zh-CN.md`、`docs/PRIVACY_MODEL.md` 和 `docs/IMPORT_PIPELINE.md` 明确规定 Token 与原始 HTML 不得持久化。
+
+设备只读元数据验证进一步确认当前安装版本已经执行过这些路径：
+
+- `shared_prefs/fluentmai_tokens.xml` 存在，大小 `341` bytes；未读取内容；
+- 内部文件目录存在 `7` 个 `wahlap-*.html` 文件；只读取文件名与数量；
+- Room 中存在 `5` 个 `wahlap_score_pages` 行；此前只统计行数并计算不含内容的语义基线，未输出 HTML。
+
+这些设备数据不会在未获得明确授权时删除或迁移。后续实现需要先停止新增明文持久化并保持导入/上传流程可用；既有私密缓存的清理属于破坏性数据操作，按 Goal 的高风险规则另行确认。
+
+## 已解决阻塞
+
+任务开始前已有的重要未提交代码会与本次工作直接重叠，曾按 Goal 的高风险规则暂停。
+
+- 2026-07-14 用户明确授权方案 1，并要求后续工作无需再次等待确认；
+- 45 个 tracked 修改和 3 个 untracked 文件已精确保存为独立 checkpoint；
+- `EPIC_UPDATE_PROGRESS.md` 未包含在该 pre-epic commit 中；
+- 后续仍遵守不 push、不卸载、不清除应用数据、不破坏成绩与导入流程的原始约束。
+
+接下来由首个 P0 checkpoint 停止新增 Token/HTML 持久化、补齐保护性测试并保持导入与上传行为不退化；不会删除设备上已经存在的私密缓存。
+
+## Checkpoint commits
+
+- `2670892c6ec309d7f628660072bc9dba67980ff8` — `chore: checkpoint pre-epic working tree`
+  - 保存任务开始前的 48 个文件；
+  - 凭证扫描通过；
+  - checkpoint 前 134 项测试通过且 Debug APK 构建成功；
+  - 未包含本进度文件。
+
+## 最终结果
+
+- 尚未完成。
