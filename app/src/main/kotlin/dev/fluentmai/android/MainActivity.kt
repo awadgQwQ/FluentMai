@@ -44,7 +44,6 @@ import androidx.compose.ui.platform.LocalContext
 import dev.fluentmai.android.core.database.FluentMaiDatabase
 import dev.fluentmai.android.core.database.FluentMaiRepository
 import dev.fluentmai.android.core.database.RoomImportPersistence
-import dev.fluentmai.android.core.database.CachedWahlapScorePage
 import dev.fluentmai.android.core.importer.MaimaiSongCatalog
 import dev.fluentmai.android.core.importer.RealWahlapImportAdapter
 import dev.fluentmai.android.core.importer.RealWahlapImportResult
@@ -58,7 +57,6 @@ import dev.fluentmai.android.core.model.MaimaiMajorVersion
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
-import dev.fluentmai.android.core.upload.DivingFishWahlapPage
 import dev.fluentmai.android.core.upload.MaimaiScoreUploader
 import dev.fluentmai.android.core.upload.MaimaiUploadProgress
 import dev.fluentmai.android.core.upload.MaimaiUploadResult
@@ -70,13 +68,9 @@ import dev.fluentmai.android.vpn.core.LocalVpnService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.text.Normalizer
-import java.io.File
 import kotlinx.coroutines.withContext
 
 private const val TAG = "FluentMaiImport"
-private const val TOKEN_PREFS_NAME = "fluentmai_tokens"
-private const val PREF_DIVING_FISH_TOKEN = "diving_fish_import_token"
-private const val PREF_LXNS_TOKEN = "lxns_user_token"
 private const val APP_VERSION = "0.1.0"
 
 class MainActivity : ComponentActivity() {
@@ -95,10 +89,6 @@ class MainActivity : ComponentActivity() {
             redactor = privacyRedactor,
         )
     }
-    private val tokenPreferences by lazy {
-        getSharedPreferences(TOKEN_PREFS_NAME, Context.MODE_PRIVATE)
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -114,44 +104,17 @@ class MainActivity : ComponentActivity() {
                     uploadToDivingFish = { token, onProgress -> uploadToDivingFish(token, onProgress) },
                     rebuildDivingFish = { token, onProgress -> rebuildDivingFish(token, onProgress) },
                     uploadToLxns = { token, onProgress -> uploadToLxns(token, onProgress) },
-                    initialDivingFishToken = tokenPreferences.getString(PREF_DIVING_FISH_TOKEN, "").orEmpty(),
-                    initialLxnsToken = tokenPreferences.getString(PREF_LXNS_TOKEN, "").orEmpty(),
-                    persistDivingFishToken = { token -> persistToken(PREF_DIVING_FISH_TOKEN, token) },
-                    persistLxnsToken = { token -> persistToken(PREF_LXNS_TOKEN, token) },
                     redactMessage = privacyRedactor::redact,
                 )
             }
         }
     }
 
-    private fun persistToken(key: String, value: String) {
-        tokenPreferences.edit().putString(key, value).apply()
-    }
-
     private suspend fun runRealImport(
         authUrl: String,
         afterLoginAttempt: () -> Unit = {},
     ): RealWahlapImportResult {
-        val fetchedPages = mutableListOf<CachedWahlapScorePage>()
-        val client = WahlapHttpScorePageClient(
-            redactor = privacyRedactor,
-            supplementalPageSink = { page ->
-                runCatching {
-                    val safeLabel = page.label.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    File(filesDir, "wahlap-supplemental-$safeLabel.html").writeText(page.html)
-                }.onFailure { error ->
-                    Log.w(TAG, "Unable to cache supplemental page ${page.label}: ${error::class.java.simpleName}")
-                }
-            },
-            debugPageSink = { label, html ->
-                runCatching {
-                    val safeLabel = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    File(filesDir, "wahlap-debug-$safeLabel.html").writeText(html)
-                }.onFailure { error ->
-                    Log.w(TAG, "Unable to cache Wahlap debug page $label: ${error::class.java.simpleName}")
-                }
-            },
-        )
+        val client = WahlapHttpScorePageClient(redactor = privacyRedactor)
         try {
             client.login(authUrl)
         } finally {
@@ -165,30 +128,19 @@ class MainActivity : ComponentActivity() {
         val result = realImportAdapter.importFetchedPages(
             source = "wahlap:real-device",
             pageProvider = WahlapScorePageProvider { difficulty ->
-                client.fetchScorePage(difficulty).also { html ->
-                    fetchedPages += CachedWahlapScorePage(
-                        sourceBatchId = "",
-                        difficulty = difficulty,
-                        html = html,
-                        fetchedAt = System.currentTimeMillis(),
-                    )
-                }
+                client.fetchScorePage(difficulty)
             },
             supplementalPageProvider = WahlapSupplementalPageProvider {
                 client.fetchSupplementalScorePages()
             },
             persistence = persistence,
         )
-        if (result.failedDifficultyCount == 0 && result.importResult.batchId.isNotBlank()) {
-            repository.replaceLatestWahlapScorePages(result.importResult.batchId, fetchedPages)
-        }
         return result
     }
 
     private suspend fun runCookieImport(cookieInput: String): RealWahlapImportResult {
         val credentials = WahlapCookieImportCredentials.parse(cookieInput)
         val catalog = fetchSongCatalogOrEmpty()
-        val fetchedPages = mutableListOf<CachedWahlapScorePage>()
         val realImportAdapter = RealWahlapImportAdapter(
             parser = WahlapFixtureParser(songCatalog = catalog),
             sanitizeFailure = privacyRedactor::redact,
@@ -196,45 +148,19 @@ class MainActivity : ComponentActivity() {
         val client = WahlapManualCookieScorePageClient(
             credentials = credentials,
             redactor = privacyRedactor,
-            supplementalPageSink = { page ->
-                runCatching {
-                    val safeLabel = page.label.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    File(filesDir, "wahlap-manual-supplemental-$safeLabel.html").writeText(page.html)
-                }.onFailure { error ->
-                    Log.w(TAG, "Unable to cache manual supplemental page ${page.label}: ${error::class.java.simpleName}")
-                }
-            },
-            debugPageSink = { label, html ->
-                runCatching {
-                    val safeLabel = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    File(filesDir, "wahlap-manual-debug-$safeLabel.html").writeText(html)
-                }.onFailure { error ->
-                    Log.w(TAG, "Unable to cache manual Wahlap debug page $label: ${error::class.java.simpleName}")
-                }
-            },
         )
         return try {
             client.validateLogin()
             val result = realImportAdapter.importFetchedPages(
                 source = "wahlap:manual-cookie",
                 pageProvider = WahlapScorePageProvider { difficulty ->
-                    client.fetchScorePage(difficulty).also { html ->
-                        fetchedPages += CachedWahlapScorePage(
-                            sourceBatchId = "",
-                            difficulty = difficulty,
-                            html = html,
-                            fetchedAt = System.currentTimeMillis(),
-                        )
-                    }
+                    client.fetchScorePage(difficulty)
                 },
                 supplementalPageProvider = WahlapSupplementalPageProvider {
                     client.fetchSupplementalScorePages()
                 },
                 persistence = persistence,
             )
-            if (result.failedDifficultyCount == 0 && result.importResult.batchId.isNotBlank()) {
-                repository.replaceLatestWahlapScorePages(result.importResult.batchId, fetchedPages)
-            }
             result
         } finally {
             client.close()
@@ -297,61 +223,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    private fun supplementalScoresMissingFromCachedPages(
-        cachedPages: List<CachedWahlapScorePage>,
-        currentScores: List<ScoreRecord>,
-        catalog: MaimaiSongCatalog,
-    ): List<ScoreRecord> {
-        val parser = WahlapFixtureParser(songCatalog = catalog)
-        val cachedKeys = cachedPages
-            .flatMap { page -> parser.parse(page.html, page.difficulty) }
-            .mapNotNull(ScoreUploadKey::fromParsed)
-            .toSet()
-
-        return currentScores.filter { score ->
-            ScoreUploadKey.fromScore(score) !in cachedKeys
-        }
-    }
-
-    private fun MaimaiUploadResult.combineWithSupplemental(
-        supplemental: MaimaiUploadResult,
-    ): MaimaiUploadResult =
-        MaimaiUploadResult(
-            platform = platform,
-            success = supplemental.success,
-            statusCode = supplemental.statusCode,
-            uploadedScoreCount = uploadedScoreCount + supplemental.uploadedScoreCount,
-            message = if (supplemental.success) {
-                "$message Supplemental update_records uploaded ${supplemental.uploadedScoreCount} records."
-            } else {
-                "$message Supplemental update_records failed: ${supplemental.message}"
-            },
-        )
-
-    private data class ScoreUploadKey(
-        val title: String,
-        val songType: String,
-        val levelIndex: Int,
-    ) {
-        companion object {
-            fun fromScore(score: ScoreRecord): ScoreUploadKey =
-                ScoreUploadKey(
-                    title = score.title.trim().lowercase(),
-                    songType = score.songType.divingFishName,
-                    levelIndex = score.levelIndex,
-                )
-
-            fun fromParsed(score: dev.fluentmai.android.core.importer.ParsedScoreRecord): ScoreUploadKey? {
-                val title = score.title?.trim()?.takeIf { it.isNotBlank() } ?: return null
-                val levelIndex = score.levelIndex ?: return null
-                return ScoreUploadKey(
-                    title = title.lowercase(),
-                    songType = score.songType.divingFishName,
-                    levelIndex = levelIndex,
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -364,10 +235,6 @@ private fun FluentMaiApp(
     uploadToDivingFish: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
     rebuildDivingFish: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
     uploadToLxns: suspend (String, (MaimaiUploadProgress) -> Unit) -> MaimaiUploadResult,
-    initialDivingFishToken: String,
-    initialLxnsToken: String,
-    persistDivingFishToken: (String) -> Unit,
-    persistLxnsToken: (String) -> Unit,
     redactMessage: (String) -> String,
 ) {
     val context = LocalContext.current
@@ -390,8 +257,8 @@ private fun FluentMaiApp(
     var lastImportError by remember { mutableStateOf<String?>(null) }
     var importStatus by remember { mutableStateOf(ImportRunStatus.Idle) }
     var uploadStatus by remember { mutableStateOf(UploadRunStatus.Idle) }
-    var divingFishToken by remember { mutableStateOf(initialDivingFishToken) }
-    var lxnsToken by remember { mutableStateOf(initialLxnsToken) }
+    var divingFishToken by remember { mutableStateOf("") }
+    var lxnsToken by remember { mutableStateOf("") }
     var lastUploadResult by remember { mutableStateOf<MaimaiUploadResult?>(null) }
     var lastUploadError by remember { mutableStateOf<String?>(null) }
     var uploadProgressText by remember { mutableStateOf<String?>(null) }
@@ -810,14 +677,8 @@ private fun FluentMaiApp(
                 onCopyHookUrl = ::copyHookUrl,
                 onWahlapCookieInputChanged = { value -> wahlapCookieInput = value },
                 onImportWahlapCookie = ::startManualCookieImport,
-                onDivingFishTokenChanged = { token ->
-                    divingFishToken = token
-                    persistDivingFishToken(token)
-                },
-                onLxnsTokenChanged = { token ->
-                    lxnsToken = token
-                    persistLxnsToken(token)
-                },
+                onDivingFishTokenChanged = { token -> divingFishToken = token },
+                onLxnsTokenChanged = { token -> lxnsToken = token },
                 onUploadDivingFish = ::startDivingFishUpload,
                 onRebuildDivingFish = ::startDivingFishRebuild,
                 onUploadLxns = ::startLxnsUpload,

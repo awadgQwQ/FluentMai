@@ -73,8 +73,8 @@ fun SettingsScreen(
         item {
             SettingSection(
                 title = "隐私",
-                primary = "成绩与 Token 仅保存在本机",
-                secondary = "日志和状态消息会隐藏 Cookie、Token、原始 HTML、完整授权 URL 和输入框内容。",
+                primary = "Token 与导入页面仅在当前会话处理",
+                secondary = "Token 不写入本地设置，新的原始 HTML 不写入文件或成绩库；日志和状态消息会隐藏 Cookie、完整授权 URL 与输入内容。",
             )
         }
         item {

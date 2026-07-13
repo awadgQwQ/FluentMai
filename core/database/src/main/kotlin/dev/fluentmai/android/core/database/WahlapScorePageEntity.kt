@@ -1,8 +1,11 @@
 package dev.fluentmai.android.core.database
 
 import androidx.room.Entity
-import dev.fluentmai.android.core.model.Difficulty
 
+/**
+ * Legacy schema-only entity retained so existing version-5 databases remain compatible.
+ * Runtime DAO access is intentionally absent: raw Wahlap HTML must not be persisted or read.
+ */
 @Entity(
     tableName = "wahlap_score_pages",
     primaryKeys = ["sourceBatchId", "difficulty"],
@@ -14,29 +17,3 @@ data class WahlapScorePageEntity(
     val html: String,
     val fetchedAt: Long,
 )
-
-data class CachedWahlapScorePage(
-    val sourceBatchId: String,
-    val difficulty: Difficulty,
-    val levelIndex: Int = difficulty.levelIndex,
-    val html: String,
-    val fetchedAt: Long,
-)
-
-fun CachedWahlapScorePage.toEntity(sourceBatchId: String = this.sourceBatchId): WahlapScorePageEntity =
-    WahlapScorePageEntity(
-        sourceBatchId = sourceBatchId,
-        difficulty = difficulty.name,
-        levelIndex = levelIndex,
-        html = html,
-        fetchedAt = fetchedAt,
-    )
-
-fun WahlapScorePageEntity.toModel(): CachedWahlapScorePage =
-    CachedWahlapScorePage(
-        sourceBatchId = sourceBatchId,
-        difficulty = Difficulty.valueOf(difficulty),
-        levelIndex = levelIndex,
-        html = html,
-        fetchedAt = fetchedAt,
-    )

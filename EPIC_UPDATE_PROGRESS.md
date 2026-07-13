@@ -6,8 +6,8 @@
 
 - 阶段一：现状审计与性能基线已完成。
 - 任务开始前的工作树与审计记录均已保存为独立 checkpoint。
-- P0 版本语义、B15 正确性与曲库缓存保护已实现并通过 JVM、构建与真机覆盖安装验证，正在保存稳定 checkpoint。
-- 下一步继续 P0：隐私边界、谱面性能与页面状态。
+- P0 版本语义、B15 正确性、曲库缓存保护与隐私边界均已实现并通过 JVM、构建与真机覆盖安装验证。
+- 正在保存隐私边界稳定 checkpoint；下一步继续 P0：谱面性能与页面状态。
 
 ## 任务约束
 
@@ -383,6 +383,29 @@ Debug APK：
   - `wahlap_score_pages`：5 / `4c7a35fe6d9060b61f71d13f45922a657445e1fb78a721b4fa6fa4564ab8919c`
 - SQLite `integrity_check=ok`、`user_version=5`；验证未输出曲名、成绩明细、HTML、Token 或 Cookie 内容。
 
+## P0：凭据与原始页面持久化边界
+
+实现：
+
+- 水鱼与 LXNS Token 不再从 `SharedPreferences` 读取或写入，只存在于当前根级 Compose 会话状态；进程/Activity 重建后为空。
+- 两个 Wahlap 客户端的 debug/supplemental 原始页面 sink 已移除；认证页、主页、成绩页和补充页只在当前请求、解析与导入调用链的内存中流转。
+- `FluentMaiRepository` 与 Room DAO 不再暴露 `wahlap_score_pages` 的读写路径；旧实体和 v5 表仅为数据库 schema 兼容而保留，因此不会破坏已经安装设备的数据库。
+- 移除 `fallbackToDestructiveMigration()`，未知 schema 不再以静默清空成绩库作为降级方案。
+- 设置页明确说明 Token 与导入页面只在当前会话处理、新原始 HTML 不落盘。
+- 新增源码边界回归测试；Room 测试验证普通 repository 操作不会删除旧表中已经存在的行。
+
+验证：
+
+- `\.\gradlew.bat test :app:assembleDebug --console=plain`：`BUILD SUCCESSFUL`。
+- Gradle XML：30 suites / 149 tests / 0 failures / 0 errors / 0 skipped。
+- Debug APK：28,437,980 bytes；SHA-256 `2721EBE7360002E423EA312821A027BF1EECE4ECDF23F3D1C342A58A1AAB5764`。
+- 对 serial `2923ae26` 再次执行 `adb install -r` 成功；未卸载或清除数据，首次安装时间仍为 `2026-06-29 02:36:58`。
+- 真机冷启动 `TotalTime=714ms`，首页 Rating 仍为 `14655`，1,619 条成绩与 5,360 张谱面全部匹配，日志无 fatal exception。
+- 上传区水鱼与 LXNS Token 标签均可见，2 个输入框均为空；设备上旧 `fluentmai_tokens.xml` 仍存在但未被读取。
+- 覆盖安装与启动前后，旧 Token 偏好文件和 7 个历史 `wahlap-*.html` 文件的路径、大小、mtime 完全一致；没有清理或重写既有隐私缓存。
+- SQLite `integrity_check=ok`、`user_version=5`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义指纹全部与前一 checkpoint 一致。
+- 设置页证据：`C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p0_privacy_boundary.png`。
+
 ## Checkpoint commits
 
 - `2670892c6ec309d7f628660072bc9dba67980ff8` — `chore: checkpoint pre-epic working tree`
@@ -393,6 +416,10 @@ Debug APK：
 - `d68dd88ae39068b8031729bff5b44901c4750c02` — `docs: record epic audit baseline`
   - 保存仓库、架构、测试、ADB、真机数据、性能、版本来源、隐私与参考截图审计；
   - 记录方案 1 已获授权并解除任务开始时的高风险阻塞。
+- `da31435890c7f9bafa1987a6a832a0e8fdae437b` — `fix: stabilize current-version B15 calculation`
+  - 统一主要版本来源、B35/B15 领域计算与谱面当前版本筛选；
+  - 加固曲库缓存完整性、规模回退、版本回退和原子替换；
+  - checkpoint 当时 145 项测试通过，并以真机覆盖安装确认 Rating `14655`、B15 15 张且用户数据指纹不变。
 
 ## 最终结果
 

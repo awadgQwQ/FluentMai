@@ -130,8 +130,6 @@ data class WahlapCookieImportCredentials(
 class WahlapManualCookieScorePageClient(
     private val credentials: WahlapCookieImportCredentials,
     private val redactor: PrivacyRedactor,
-    private val supplementalPageSink: (WahlapSupplementalPage) -> Unit = {},
-    private val debugPageSink: (label: String, html: String) -> Unit = { _, _ -> },
 ) : Closeable {
     private val client = HttpClient(CIO) {
         install(HttpTimeout) {
@@ -144,7 +142,6 @@ class WahlapManualCookieScorePageClient(
     suspend fun validateLogin() {
         Log.i(TAG, "Manual Wahlap cookie import: ${credentials.safeSummary()}")
         val home = request(label = "manual-home", rawUrl = HOME_URL)
-        debugPageSink("manual-home", home.body)
         if (home.statusCode !in 200..299) {
             throw IOException("Wahlap Cookie login failed: status=${home.statusCode}")
         }
@@ -192,7 +189,6 @@ class WahlapManualCookieScorePageClient(
                 return@mapNotNull null
             }
             WahlapSupplementalPage(label = candidate.label, html = response.body)
-                .also(supplementalPageSink)
         }
 
     private suspend fun request(label: String, rawUrl: String): HttpResponse =

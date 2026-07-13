@@ -21,7 +21,6 @@ abstract class FluentMaiDatabase : RoomDatabase() {
     abstract fun scoreRecordDao(): ScoreRecordDao
     abstract fun importBatchDao(): ImportBatchDao
     abstract fun quarantineRecordDao(): QuarantineRecordDao
-    abstract fun wahlapScorePageDao(): WahlapScorePageDao
 
     companion object {
         fun create(context: Context): FluentMaiDatabase =
@@ -31,7 +30,6 @@ abstract class FluentMaiDatabase : RoomDatabase() {
                 "fluentmai-phase0.db",
             )
                 .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
-                .fallbackToDestructiveMigration()
                 .build()
 
         private val MIGRATION_2_3 = object : Migration(2, 3) {

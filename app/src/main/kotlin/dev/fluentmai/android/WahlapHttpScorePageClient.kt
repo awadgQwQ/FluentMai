@@ -12,8 +12,6 @@ import kotlinx.coroutines.runBlocking
 
 class WahlapHttpScorePageClient(
     private val redactor: PrivacyRedactor,
-    private val supplementalPageSink: (WahlapSupplementalPage) -> Unit = {},
-    private val debugPageSink: (label: String, html: String) -> Unit = { _, _ -> },
 ) {
     fun login(authUrl: String) {
         val normalizedAuthUrl = normalizeWahlapAuthUrl(authUrl)
@@ -24,7 +22,6 @@ class WahlapHttpScorePageClient(
         )
         val auth = request(label = "auth", rawUrl = normalizedAuthUrl)
         Log.i(TAG, "Wahlap auth response cookies=${cookieSummary()}")
-        debugPageSink("auth", auth.body)
         if (auth.statusCode !in 200..299) {
             Log.w(
                 TAG,
@@ -36,7 +33,6 @@ class WahlapHttpScorePageClient(
         Log.i(TAG, "Wahlap home request cookiesBefore=${cookieSummary()}")
         val home = request(label = "home", rawUrl = HOME_URL)
         Log.i(TAG, "Wahlap home response cookies=${cookieSummary()}")
-        debugPageSink("home", home.body)
         if (home.statusCode !in 200..299) {
             throw IOException("Wahlap login failed: status=${home.statusCode}")
         }
@@ -85,7 +81,6 @@ class WahlapHttpScorePageClient(
                 return@mapNotNull null
             }
             WahlapSupplementalPage(label = candidate.label, html = response.body)
-                .also(supplementalPageSink)
         }
 
     private fun request(label: String, rawUrl: String): HttpResponse =

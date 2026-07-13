@@ -235,67 +235,21 @@ class RoomImportPersistenceTest {
     }
 
     @Test
-    fun repositoryStoresOnlyLatestWahlapScorePages() = runTest {
-        val repository = FluentMaiRepository(database)
-        persistence.insertImportBatch(
-            ImportBatch(
-                id = "batch-old",
-                source = "wahlap:real-device",
-                importedAt = 1000L,
-                totalParsed = 1,
-                inserted = 1,
-                updated = 0,
-                skippedDuplicate = 0,
-                quarantined = 0,
-                rejected = 0,
-            ),
-        )
-        repository.replaceLatestWahlapScorePages(
-            batchId = "batch-old",
-            pages = listOf(
-                CachedWahlapScorePage(
-                    sourceBatchId = "",
-                    difficulty = Difficulty.EXPERT,
-                    html = "old-html",
-                    fetchedAt = 1001L,
-                ),
-            ),
-        )
-        persistence.insertImportBatch(
-            ImportBatch(
-                id = "batch-new",
-                source = "wahlap:real-device",
-                importedAt = 2000L,
-                totalParsed = 2,
-                inserted = 2,
-                updated = 0,
-                skippedDuplicate = 0,
-                quarantined = 0,
-                rejected = 0,
-            ),
-        )
-        repository.replaceLatestWahlapScorePages(
-            batchId = "batch-new",
-            pages = listOf(
-                CachedWahlapScorePage(
-                    sourceBatchId = "",
-                    difficulty = Difficulty.BASIC,
-                    html = "basic-html",
-                    fetchedAt = 2001L,
-                ),
-                CachedWahlapScorePage(
-                    sourceBatchId = "",
-                    difficulty = Difficulty.MASTER,
-                    html = "master-html",
-                    fetchedAt = 2002L,
-                ),
-            ),
+    fun repositoryOperationsPreserveLegacyWahlapPageRows() = runTest {
+        val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL(
+            """
+            INSERT INTO wahlap_score_pages(sourceBatchId, difficulty, levelIndex, html, fetchedAt)
+            VALUES ('legacy-batch', 'EXPERT', 2, 'legacy-private-page', 1000)
+            """.trimIndent(),
         )
 
-        val pages = repository.latestWahlapScorePages()
+        FluentMaiRepository(database).scoreCount()
 
-        assertEquals(listOf(Difficulty.BASIC, Difficulty.MASTER), pages.map { it.difficulty })
-        assertEquals(listOf("basic-html", "master-html"), pages.map { it.html })
-        assertEquals(true, pages.all { it.sourceBatchId == "batch-new" })
+        val cursor = sqlite.query("SELECT COUNT(*) FROM wahlap_score_pages")
+        cursor.use {
+            assertTrue(it.moveToFirst())
+            assertEquals(1, it.getInt(0))
+        }
     }
 }
