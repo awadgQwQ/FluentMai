@@ -629,7 +629,22 @@ Debug APK：
   - 以确定性 B35/B15 重算实现可解释推分、目标/范围/版本/不想练筛选和真实 B50 增量；
   - 推荐状态进入 `SavedStateHandle`，卡片复用统一谱面详情且返回后保留推荐区段；
   - checkpoint 当时 199 项测试通过，真机目标总分、排除恢复、详情返回和全部既有数据指纹验证通过。
+- `7a94e9cd4f58f988ed08ff37b4ffc1d48ff7e877` — `feat: adapt layouts for Android large screens`
+  - 在 600dp 断点切换 Bottom Navigation / Navigation Rail，并为手机横屏、可调窗口与平板复用响应式页面；
+  - 实机横竖屏、两组 WindowManager 宽度覆盖与全新 API 34 Medium Tablet AVD 验收通过；
+  - checkpoint 当时 203 项测试通过，真机设置恢复、应用数据与历史私密缓存均未改变。
+- `79d58ac0033b9322d6555d1a8daa7cd5b94f6022` — `feat: add FluentMai iOS MVP`
+  - `core:model` 迁移到 KMP，保留 Android JVM 消费并增加 iOS framework、Swift bridge 与公共测试；
+  - 新增 SwiftUI iPhone/iPad MVP、离线本地数据、XcodeGen 工程定义、macOS Simulator CI 与 `IOS_TESTING.md`；
+  - checkpoint 当时 206 项测试通过，Android 覆盖安装与数据指纹验证通过；iOS 真实 Xcode/Simulator 结果仍明确等待由用户 push 后的 macOS workflow。
 
 ## 最终结果
 
-- 尚未完成。
+- Android 主交付已经完成：B15 修复、隐私边界、谱面性能/状态、玩家记录、牌子、社区别名、统一详情、工具箱、Rating 趋势、可解释推分，以及手机横屏/平板/可调窗口均已有实现、自动测试、真机数据保护与对应稳定 checkpoint。
+- iOS 次级交付已达到可交给 Mac 测试者和 macOS CI 的 MVP/Level 1 候选：共享领域层、SwiftUI 功能面、响应式 iPhone/iPad 布局、本地持久化、工程生成、unsigned Simulator 构建/启动/截图 workflow 和人工测试说明齐全。受当前 Windows 主机与“不得 push”约束，尚无真实 macOS build 成功日志，因此不虚报为已验证 Level 1。
+- 最终干净回归为 45 suites / 206 tests / 0 failures / 0 errors / 0 skipped；公共 KMP metadata、JVM 变体、Android 编译和 Debug APK 均成功。Swift 源码 tree-sitter 语法错误为 0，两份 YAML 与公开曲库 JSON 可解析。
+- 最终真机覆盖安装使用 `adb install -r`，没有卸载或清数据；首次安装时间不变，冷启动 `891ms`，无 fatal。SQLite 完整性、schema v6、1,619 条成绩、9,983 条隔离记录、29 个导入批次、5 个历史页面行和四组语义 SHA-256 全部与基线一致。
+- 旧 `fluentmai_tokens.xml` 元数据仍为 `341:1783304211`；7 个历史 `wahlap-*.html` 只核对文件名/大小/mtime，其规范化元数据 SHA-256 仍为 `EBB86FFAC0DCB84CF6693C6E8B9A21E9F5C843C4001E4373F208A5C9C3C5E7D4`。没有读取、打印、迁移或删除其内容。
+- 最终设备状态：只连接真机 serial `2923ae26`；应用已 force-stop；WindowManager 恢复为 override `1080x2400 / 420dpi`，旋转设置 `accelerometer_rotation=0 / user_rotation=0`；iOS/Android 模拟器均未保持运行。
+- 本次 32 个变更/新增文本文件的高置信凭证扫描命中 0。全仓扫描另命中 3 处任务前已有的固定本地代理示例/URL 格式化代码，人工复核为示例占位与动态格式串，不是实际 Token、Cookie、私钥或账号凭证；敏感文件路径命中 0。
+- 未执行 push。最终分支保持本地 `master`，所有产品变更按 checkpoint 保存；真实 macOS CI 需要用户之后自行 push 才会触发。
