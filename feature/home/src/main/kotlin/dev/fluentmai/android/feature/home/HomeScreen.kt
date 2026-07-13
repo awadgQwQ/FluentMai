@@ -9,10 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,8 +22,6 @@ import dev.fluentmai.android.core.model.ImportBatch
 fun HomeScreen(
     totalScoreCount: Int,
     lastImport: ImportBatch?,
-    isImporting: Boolean,
-    onRunFakeImport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -41,22 +35,13 @@ fun HomeScreen(
             style = MaterialTheme.typography.headlineMedium,
         )
         SummarySurface(
-            title = "Total scores",
+            title = "本地成绩",
             value = totalScoreCount.toString(),
         )
         SummarySurface(
-            title = "Last import",
-            value = lastImport?.summaryText() ?: "No imports yet",
+            title = "上次导入",
+            value = lastImport?.summaryText() ?: "还没有导入记录",
         )
-        Button(
-            onClick = onRunFakeImport,
-            enabled = !isImporting,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = if (isImporting) "Importing" else "Run fake import")
-        }
     }
 }
 
@@ -87,5 +72,4 @@ private fun SummarySurface(
 }
 
 private fun ImportBatch.summaryText(): String =
-    "$inserted inserted, $skippedDuplicate duplicate, $quarantined quarantined"
-
+    "新增 $inserted 条，重复 $skippedDuplicate 条，隔离 $quarantined 条"

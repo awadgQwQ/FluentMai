@@ -249,4 +249,3 @@ public class DnsProxy implements Runnable {
         public short RemotePort;
     }
 }
-

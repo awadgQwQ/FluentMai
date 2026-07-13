@@ -11,23 +11,23 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,16 +41,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import dev.fluentmai.android.core.database.CachedWahlapScorePage
 import dev.fluentmai.android.core.database.FluentMaiDatabase
 import dev.fluentmai.android.core.database.FluentMaiRepository
 import dev.fluentmai.android.core.database.RoomImportPersistence
-import dev.fluentmai.android.core.importer.FakeImportPipeline
+import dev.fluentmai.android.core.database.CachedWahlapScorePage
 import dev.fluentmai.android.core.importer.MaimaiSongCatalog
 import dev.fluentmai.android.core.importer.RealWahlapImportAdapter
 import dev.fluentmai.android.core.importer.RealWahlapImportResult
-import dev.fluentmai.android.core.importer.WahlapFixtureParser
 import dev.fluentmai.android.core.importer.WahlapScorePageProvider
+import dev.fluentmai.android.core.importer.WahlapFixtureParser
 import dev.fluentmai.android.core.importer.WahlapSupplementalPageProvider
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.ImportBatch
@@ -58,34 +57,31 @@ import dev.fluentmai.android.core.model.ImportResult
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.privacy.PrivacyRedactor
+import dev.fluentmai.android.core.upload.DivingFishWahlapPage
 import dev.fluentmai.android.core.upload.MaimaiScoreUploader
 import dev.fluentmai.android.core.upload.MaimaiUploadProgress
 import dev.fluentmai.android.core.upload.MaimaiUploadResult
-import dev.fluentmai.android.feature.home.HomeScreen
 import dev.fluentmai.android.feature.importflow.ImportScreen
-import dev.fluentmai.android.feature.quarantine.QuarantineScreen
 import dev.fluentmai.android.feature.scores.ChartQueryScreen
 import dev.fluentmai.android.feature.scores.ScoresScreen
 import dev.fluentmai.android.feature.settings.SettingsScreen
 import dev.fluentmai.android.vpn.core.LocalVpnService
-import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.text.Normalizer
+import java.io.File
 import kotlinx.coroutines.withContext
 
-private const val TAG = "FluentMaiCatalog"
-private const val IMPORT_TAG = "FluentMaiImport"
-private const val UPLOAD_TAG = "FluentMaiUpload"
+private const val TAG = "FluentMaiImport"
 private const val TOKEN_PREFS_NAME = "fluentmai_tokens"
-private const val PREF_DIVING_FISH_TOKEN = "diving_fish_upload_token"
-private const val PREF_LXNS_TOKEN = "lxns_upload_token"
+private const val PREF_DIVING_FISH_TOKEN = "diving_fish_import_token"
+private const val PREF_LXNS_TOKEN = "lxns_user_token"
+private const val APP_VERSION = "0.1.0"
 
 class MainActivity : ComponentActivity() {
     private val database by lazy { FluentMaiDatabase.create(this) }
     private val repository by lazy { FluentMaiRepository(database) }
     private val persistence by lazy { RoomImportPersistence(database) }
-    private val importPipeline by lazy { FakeImportPipeline() }
     private val privacyRedactor by lazy { PrivacyRedactor() }
     private val scoreUploader by lazy {
         MaimaiScoreUploader(transport = AndroidNetworkMaimaiUploadTransport(this))
@@ -108,7 +104,6 @@ class MainActivity : ComponentActivity() {
             FluentMaiTheme {
                 FluentMaiApp(
                     repository = repository,
-                    runFakeImport = { runFakeImport() },
                     runRealImport = { authUrl, afterLoginAttempt ->
                         runRealImport(authUrl, afterLoginAttempt)
                     },
@@ -132,17 +127,6 @@ class MainActivity : ComponentActivity() {
         tokenPreferences.edit().putString(key, value).apply()
     }
 
-    private suspend fun runFakeImport(): ImportResult {
-        val fixture = withContext(Dispatchers.IO) {
-            assets.open("valid_sample_import.json").bufferedReader().use { it.readText() }
-        }
-        return importPipeline.importJson(
-            source = "asset:valid_sample_import.json",
-            json = fixture,
-            persistence = persistence,
-        )
-    }
-
     private suspend fun runRealImport(
         authUrl: String,
         afterLoginAttempt: () -> Unit = {},
@@ -155,7 +139,7 @@ class MainActivity : ComponentActivity() {
                     val safeLabel = page.label.replace(Regex("[^A-Za-z0-9._-]"), "_")
                     File(filesDir, "wahlap-supplemental-$safeLabel.html").writeText(page.html)
                 }.onFailure { error ->
-                    Log.w(IMPORT_TAG, "Unable to cache supplemental page ${page.label}: ${error::class.java.simpleName}")
+                    Log.w(TAG, "Unable to cache supplemental page ${page.label}: ${error::class.java.simpleName}")
                 }
             },
             debugPageSink = { label, html ->
@@ -163,7 +147,7 @@ class MainActivity : ComponentActivity() {
                     val safeLabel = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
                     File(filesDir, "wahlap-debug-$safeLabel.html").writeText(html)
                 }.onFailure { error ->
-                    Log.w(IMPORT_TAG, "Unable to cache Wahlap debug page $label: ${error::class.java.simpleName}")
+                    Log.w(TAG, "Unable to cache Wahlap debug page $label: ${error::class.java.simpleName}")
                 }
             },
         )
@@ -172,7 +156,6 @@ class MainActivity : ComponentActivity() {
         } finally {
             afterLoginAttempt()
         }
-
         val catalog = fetchSongCatalogOrEmpty()
         val realImportAdapter = RealWahlapImportAdapter(
             parser = WahlapFixtureParser(songCatalog = catalog),
@@ -217,7 +200,7 @@ class MainActivity : ComponentActivity() {
                     val safeLabel = page.label.replace(Regex("[^A-Za-z0-9._-]"), "_")
                     File(filesDir, "wahlap-manual-supplemental-$safeLabel.html").writeText(page.html)
                 }.onFailure { error ->
-                    Log.w(IMPORT_TAG, "Unable to cache manual supplemental page ${page.label}: ${error::class.java.simpleName}")
+                    Log.w(TAG, "Unable to cache manual supplemental page ${page.label}: ${error::class.java.simpleName}")
                 }
             },
             debugPageSink = { label, html ->
@@ -225,7 +208,7 @@ class MainActivity : ComponentActivity() {
                     val safeLabel = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
                     File(filesDir, "wahlap-manual-debug-$safeLabel.html").writeText(html)
                 }.onFailure { error ->
-                    Log.w(IMPORT_TAG, "Unable to cache manual Wahlap debug page $label: ${error::class.java.simpleName}")
+                    Log.w(TAG, "Unable to cache manual Wahlap debug page $label: ${error::class.java.simpleName}")
                 }
             },
         )
@@ -257,14 +240,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private suspend fun fetchSongCatalogOrEmpty(): MaimaiSongCatalog =
-        songCatalogStore.loadLocalCatalog()?.catalog ?: MaimaiSongCatalog.Empty
-
     private suspend fun uploadToDivingFish(
         token: String,
         onProgress: (MaimaiUploadProgress) -> Unit,
     ): MaimaiUploadResult {
-        onProgress(MaimaiUploadProgress(0, 1, "Reading local scores"))
+        onProgress(MaimaiUploadProgress(0, 1, "正在读取本地成绩"))
         val currentScores = repository.scores()
         return scoreUploader.uploadToDivingFish(
             importToken = token,
@@ -277,7 +257,7 @@ class MainActivity : ComponentActivity() {
         token: String,
         onProgress: (MaimaiUploadProgress) -> Unit,
     ): MaimaiUploadResult {
-        onProgress(MaimaiUploadProgress(0, 1, "Reading local scores"))
+        onProgress(MaimaiUploadProgress(0, 1, "正在读取本地成绩"))
         val currentScores = repository.scores()
         return scoreUploader.rebuildDivingFishRecords(
             importToken = token,
@@ -291,8 +271,7 @@ class MainActivity : ComponentActivity() {
         token: String,
         onProgress: (MaimaiUploadProgress) -> Unit,
     ): MaimaiUploadResult {
-        onProgress(MaimaiUploadProgress(0, 1, "Reading local scores"))
-        val catalog = songCatalogStore.loadLocalCatalog()?.catalog ?: MaimaiSongCatalog.Empty
+        val catalog = fetchSongCatalogOrEmpty()
         val currentScores = repository.scores().withCatalogSongIds(catalog)
         return scoreUploader.uploadToLxns(
             userToken = token,
@@ -300,6 +279,13 @@ class MainActivity : ComponentActivity() {
             onProgress = onProgress,
         )
     }
+
+    private fun fetchSongCatalogOrEmpty(): MaimaiSongCatalog =
+        runCatching { songCatalogClient.fetchCatalog() }
+            .getOrElse { error ->
+                Log.w(TAG, "LXNS song catalog unavailable: ${privacyRedactor.redact(error.message ?: error::class.java.simpleName)}")
+                MaimaiSongCatalog.Empty
+            }
 
     private fun List<ScoreRecord>.withCatalogSongIds(catalog: MaimaiSongCatalog): List<ScoreRecord> =
         map { score ->
@@ -309,12 +295,67 @@ class MainActivity : ComponentActivity() {
                 score.copy(songId = catalog.idForTitle(score.title))
             }
         }
+
+    private fun supplementalScoresMissingFromCachedPages(
+        cachedPages: List<CachedWahlapScorePage>,
+        currentScores: List<ScoreRecord>,
+        catalog: MaimaiSongCatalog,
+    ): List<ScoreRecord> {
+        val parser = WahlapFixtureParser(songCatalog = catalog)
+        val cachedKeys = cachedPages
+            .flatMap { page -> parser.parse(page.html, page.difficulty) }
+            .mapNotNull(ScoreUploadKey::fromParsed)
+            .toSet()
+
+        return currentScores.filter { score ->
+            ScoreUploadKey.fromScore(score) !in cachedKeys
+        }
+    }
+
+    private fun MaimaiUploadResult.combineWithSupplemental(
+        supplemental: MaimaiUploadResult,
+    ): MaimaiUploadResult =
+        MaimaiUploadResult(
+            platform = platform,
+            success = supplemental.success,
+            statusCode = supplemental.statusCode,
+            uploadedScoreCount = uploadedScoreCount + supplemental.uploadedScoreCount,
+            message = if (supplemental.success) {
+                "$message Supplemental update_records uploaded ${supplemental.uploadedScoreCount} records."
+            } else {
+                "$message Supplemental update_records failed: ${supplemental.message}"
+            },
+        )
+
+    private data class ScoreUploadKey(
+        val title: String,
+        val songType: String,
+        val levelIndex: Int,
+    ) {
+        companion object {
+            fun fromScore(score: ScoreRecord): ScoreUploadKey =
+                ScoreUploadKey(
+                    title = score.title.trim().lowercase(),
+                    songType = score.songType.divingFishName,
+                    levelIndex = score.levelIndex,
+                )
+
+            fun fromParsed(score: dev.fluentmai.android.core.importer.ParsedScoreRecord): ScoreUploadKey? {
+                val title = score.title?.trim()?.takeIf { it.isNotBlank() } ?: return null
+                val levelIndex = score.levelIndex ?: return null
+                return ScoreUploadKey(
+                    title = title.lowercase(),
+                    songType = score.songType.divingFishName,
+                    levelIndex = levelIndex,
+                )
+            }
+        }
+    }
 }
 
 @Composable
 private fun FluentMaiApp(
     repository: FluentMaiRepository,
-    runFakeImport: suspend () -> ImportResult,
     runRealImport: suspend (String, () -> Unit) -> RealWahlapImportResult,
     runCookieImport: suspend (String) -> RealWahlapImportResult,
     loadLocalChartCatalog: suspend () -> SongCatalogSnapshot?,
@@ -329,8 +370,8 @@ private fun FluentMaiApp(
     redactMessage: (String) -> String,
 ) {
     val context = LocalContext.current
-    val authUrlRedactor = remember { PrivacyRedactor() }
     val startupStartedAtMs = remember { SystemClock.elapsedRealtime() }
+    val authUrlRedactor = remember { PrivacyRedactor() }
     val hookStatus by WahlapHookBridge.status.collectAsState()
     val isHookRunning by WahlapHookBridge.vpnRunning.collectAsState()
     var selectedTab by remember { mutableStateOf(AppTab.Home) }
@@ -338,10 +379,11 @@ private fun FluentMaiApp(
     var scores by remember { mutableStateOf<List<ScoreRecord>>(emptyList()) }
     var chartRecords by remember { mutableStateOf<List<ChartRecord>>(emptyList()) }
     var isChartCatalogLoading by remember { mutableStateOf(false) }
+    var isScoreStateLoaded by remember { mutableStateOf(false) }
+    var isRatingReadyLogged by remember { mutableStateOf(false) }
     var quarantineCount by remember { mutableStateOf(0) }
     var quarantineRecords by remember { mutableStateOf<List<QuarantineRecord>>(emptyList()) }
     var lastImport by remember { mutableStateOf<ImportBatch?>(null) }
-    var lastResult by remember { mutableStateOf<ImportResult?>(null) }
     var lastRealResult by remember { mutableStateOf<RealWahlapImportResult?>(null) }
     var lastImportError by remember { mutableStateOf<String?>(null) }
     var importStatus by remember { mutableStateOf(ImportRunStatus.Idle) }
@@ -364,56 +406,23 @@ private fun FluentMaiApp(
         if (result.resultCode == Activity.RESULT_OK) {
             startVpnService(context)
         } else {
-            WahlapHookBridge.setStatus("VPN permission was not granted; cannot capture Wahlap auth.")
+            WahlapHookBridge.setStatus("没有获得 VPN 权限，无法从微信捕获授权请求。")
         }
     }
 
     suspend fun refreshState() {
+        val startedAt = SystemClock.elapsedRealtime()
         scoreCount = repository.scoreCount()
         scores = repository.scores()
         quarantineCount = repository.quarantineCount()
         quarantineRecords = repository.quarantineRecords()
         lastImport = repository.latestImportBatch()
-    }
-
-    fun refreshChartRecords() {
-        scope.launch {
-            isChartCatalogLoading = true
-            val localStartedAt = SystemClock.elapsedRealtime()
-            val localSnapshot = withContext(Dispatchers.IO) { loadLocalChartCatalog() }
-            if (localSnapshot != null) {
-                chartRecords = localSnapshot.catalog.charts()
-                Log.i(
-                    TAG,
-                    "Local song catalog ready in ${SystemClock.elapsedRealtime() - localStartedAt}ms: " +
-                        "source=${localSnapshot.source.logName} songs=${localSnapshot.songCount} " +
-                        "charts=${localSnapshot.chartCount} bytes=${localSnapshot.jsonBytes}",
-                )
-            } else {
-                Log.w(TAG, "No local song catalog cache or bundled fallback available")
-            }
-
-            val networkStartedAt = SystemClock.elapsedRealtime()
-            runCatching {
-                withContext(Dispatchers.IO) { refreshChartCatalog() }
-            }.onSuccess { networkSnapshot ->
-                chartRecords = networkSnapshot.catalog.charts()
-                Log.i(
-                    TAG,
-                    "LXNS song catalog background refresh completed in " +
-                        "${SystemClock.elapsedRealtime() - networkStartedAt}ms: " +
-                        "songs=${networkSnapshot.songCount} charts=${networkSnapshot.chartCount} " +
-                        "startupElapsedMs=${SystemClock.elapsedRealtime() - startupStartedAtMs}",
-                )
-            }.onFailure { error ->
-                Log.w(
-                    TAG,
-                    "LXNS song catalog background refresh failed after " +
-                        "${SystemClock.elapsedRealtime() - networkStartedAt}ms: ${error.message ?: error::class.java.simpleName}",
-                )
-            }
-            isChartCatalogLoading = false
-        }
+        isScoreStateLoaded = true
+        Log.i(
+            TAG,
+            "Scores state loaded in ${SystemClock.elapsedRealtime() - startedAt}ms: " +
+                "scoreCount=$scoreCount quarantineCount=$quarantineCount",
+        )
     }
 
     fun updateUploadProgress(progress: MaimaiUploadProgress) {
@@ -425,14 +434,51 @@ private fun FluentMaiApp(
         }
     }
 
-    fun startImport() {
+    fun stopCaptureBeforeUpload() {
+        if (isHookRunning) {
+            stopVpnService(context)
+            WahlapHookBridge.setStatus("上传前已停止 Hook 捕获，避免本地 VPN 影响外网上传。")
+        }
+    }
+
+    fun refreshChartRecords() {
         scope.launch {
-            isImporting = true
+            val startedAt = SystemClock.elapsedRealtime()
+            isChartCatalogLoading = true
+            val localSnapshot = withContext(Dispatchers.IO) { loadLocalChartCatalog() }
+            if (localSnapshot != null) {
+                chartRecords = localSnapshot.catalog.charts()
+                Log.i(
+                    TAG,
+                    "Local song catalog ready in ${SystemClock.elapsedRealtime() - startedAt}ms: " +
+                        "source=${localSnapshot.source.logName} songCount=${localSnapshot.songCount} " +
+                        "chartCount=${localSnapshot.chartCount} jsonBytes=${localSnapshot.jsonBytes}",
+                )
+            } else {
+                Log.w(TAG, "No local song catalog cache or bundled fallback available")
+            }
             try {
-                lastResult = withContext(Dispatchers.IO) { runFakeImport() }
-                refreshState()
+                val networkStartedAt = SystemClock.elapsedRealtime()
+                Log.i(TAG, "LXNS song catalog background refresh started")
+                val networkSnapshot = withContext(Dispatchers.IO) { refreshChartCatalog() }
+                chartRecords = networkSnapshot.catalog.charts()
+                Log.i(
+                    TAG,
+                    "LXNS song catalog background refresh completed in " +
+                        "${SystemClock.elapsedRealtime() - networkStartedAt}ms: " +
+                        "songCount=${networkSnapshot.songCount} chartCount=${networkSnapshot.chartCount} " +
+                        "jsonBytes=${networkSnapshot.jsonBytes}",
+                )
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                Log.w(
+                    TAG,
+                    "LXNS song catalog background refresh failed after " +
+                        "${SystemClock.elapsedRealtime() - startedAt}ms: $safeMessage; " +
+                        "usingChartCount=${chartRecords.size}",
+                )
             } finally {
-                isImporting = false
+                isChartCatalogLoading = false
             }
         }
     }
@@ -441,12 +487,12 @@ private fun FluentMaiApp(
         val capturedToken = divingFishToken.trim()
         if (capturedToken.isBlank()) {
             uploadStatus = UploadRunStatus.Failed
-            lastUploadError = "Enter the Diving Fish upload token first."
+            lastUploadError = "请先填写水鱼 Import Token。"
             return
         }
         if (scoreCount <= 0) {
             uploadStatus = UploadRunStatus.Failed
-            lastUploadError = "Import scores before uploading."
+            lastUploadError = "请先导入成绩，再上传。"
             return
         }
         scope.launch {
@@ -454,7 +500,8 @@ private fun FluentMaiApp(
             uploadStatus = UploadRunStatus.Uploading
             lastUploadError = null
             lastUploadResult = null
-            updateUploadProgress(MaimaiUploadProgress(0, 1, "Preparing Diving Fish upload"))
+            stopCaptureBeforeUpload()
+            updateUploadProgress(MaimaiUploadProgress(0, 1, "准备上传到水鱼"))
             try {
                 val result = withContext(Dispatchers.IO) {
                     uploadToDivingFish(capturedToken) { progress ->
@@ -465,13 +512,13 @@ private fun FluentMaiApp(
                 uploadStatus = result.toUploadRunStatus()
                 uploadProgressText = result.message
                 uploadProgressFraction = if (result.success || result.hasCloudLocalDiff) 1f else uploadProgressFraction
-                Log.i(UPLOAD_TAG, "Diving Fish upload completed: ${result.safeSummary()}")
+                Log.i(TAG, "Diving Fish upload completed: ${result.safeSummary()}")
             } catch (error: Exception) {
                 val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
                 lastUploadError = safeMessage
                 uploadStatus = UploadRunStatus.Failed
-                uploadProgressText = "Upload failed: $safeMessage"
-                Log.e(UPLOAD_TAG, "Diving Fish upload failed: $safeMessage")
+                uploadProgressText = "上传失败：$safeMessage"
+                Log.e(TAG, "Diving Fish upload failed: $safeMessage")
             } finally {
                 isUploading = false
             }
@@ -482,12 +529,12 @@ private fun FluentMaiApp(
         val capturedToken = divingFishToken.trim()
         if (capturedToken.isBlank()) {
             uploadStatus = UploadRunStatus.Failed
-            lastUploadError = "Enter the Diving Fish upload token first."
+            lastUploadError = "请先填写水鱼 Import Token。"
             return
         }
         if (scoreCount <= 0) {
             uploadStatus = UploadRunStatus.Failed
-            lastUploadError = "Import scores before rebuilding Diving Fish records."
+            lastUploadError = "请先导入成绩，再重建水鱼数据。"
             return
         }
         scope.launch {
@@ -495,7 +542,8 @@ private fun FluentMaiApp(
             uploadStatus = UploadRunStatus.Uploading
             lastUploadError = null
             lastUploadResult = null
-            updateUploadProgress(MaimaiUploadProgress(0, 1, "Preparing guarded Diving Fish rebuild"))
+            stopCaptureBeforeUpload()
+            updateUploadProgress(MaimaiUploadProgress(0, 1, "准备重建水鱼数据"))
             try {
                 val result = withContext(Dispatchers.IO) {
                     rebuildDivingFish(capturedToken) { progress ->
@@ -506,13 +554,13 @@ private fun FluentMaiApp(
                 uploadStatus = result.toUploadRunStatus()
                 uploadProgressText = result.message
                 uploadProgressFraction = if (result.success || result.hasCloudLocalDiff) 1f else uploadProgressFraction
-                Log.i(UPLOAD_TAG, "Diving Fish rebuild completed: ${result.safeSummary()}")
+                Log.i(TAG, "Diving Fish rebuild completed: ${result.safeSummary()}")
             } catch (error: Exception) {
                 val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
                 lastUploadError = safeMessage
                 uploadStatus = UploadRunStatus.Failed
-                uploadProgressText = "Rebuild failed: $safeMessage"
-                Log.e(UPLOAD_TAG, "Diving Fish rebuild failed: $safeMessage")
+                uploadProgressText = "重建失败：$safeMessage"
+                Log.e(TAG, "Diving Fish rebuild failed: $safeMessage")
             } finally {
                 isUploading = false
             }
@@ -523,12 +571,12 @@ private fun FluentMaiApp(
         val capturedToken = lxnsToken.trim()
         if (capturedToken.isBlank()) {
             uploadStatus = UploadRunStatus.Failed
-            lastUploadError = "Enter the LXNS user token first."
+            lastUploadError = "请先填写落雪 LXNS User Token。"
             return
         }
         if (scoreCount <= 0) {
             uploadStatus = UploadRunStatus.Failed
-            lastUploadError = "Import scores before uploading."
+            lastUploadError = "请先导入成绩，再上传。"
             return
         }
         scope.launch {
@@ -536,7 +584,8 @@ private fun FluentMaiApp(
             uploadStatus = UploadRunStatus.Uploading
             lastUploadError = null
             lastUploadResult = null
-            updateUploadProgress(MaimaiUploadProgress(0, 1, "Preparing LXNS upload"))
+            stopCaptureBeforeUpload()
+            updateUploadProgress(MaimaiUploadProgress(0, 1, "准备上传到 LXNS"))
             try {
                 val result = withContext(Dispatchers.IO) {
                     uploadToLxns(capturedToken) { progress ->
@@ -547,75 +596,35 @@ private fun FluentMaiApp(
                 uploadStatus = if (result.success) UploadRunStatus.Success else UploadRunStatus.Failed
                 uploadProgressText = result.message
                 uploadProgressFraction = if (result.success) 1f else uploadProgressFraction
-                Log.i(UPLOAD_TAG, "LXNS upload completed: ${result.safeSummary()}")
+                Log.i(TAG, "LXNS upload completed: ${result.safeSummary()}")
             } catch (error: Exception) {
                 val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
                 lastUploadError = safeMessage
                 uploadStatus = UploadRunStatus.Failed
-                uploadProgressText = "Upload failed: $safeMessage"
-                Log.e(UPLOAD_TAG, "LXNS upload failed: $safeMessage")
+                uploadProgressText = "上传失败：$safeMessage"
+                Log.e(TAG, "LXNS upload failed: $safeMessage")
             } finally {
                 isUploading = false
             }
         }
     }
 
-    fun startManualCookieImport() {
-        val capturedInput = wahlapCookieInput.trim()
-        if (capturedInput.isBlank()) {
-            importStatus = ImportRunStatus.Failed
-            lastImportError = "Paste a Wahlap Cookie or Reqable request header first."
-            return
-        }
-        scope.launch {
-            isImporting = true
-            importStatus = ImportRunStatus.Importing
-            lastImportError = null
-            lastRealResult = null
-            try {
-                stopVpnService(context)
-                WahlapHookHttpService.stop(context)
-                WahlapHookBridge.finishImport()
-                WahlapHookBridge.setStatus("Importing scores with manual Wahlap Cookie credentials.")
-                val result = withContext(Dispatchers.IO) { runCookieImport(capturedInput) }
-                lastRealResult = result
-                importStatus = if (result.failedDifficultyCount == 0 && result.fetchedDifficultyCount > 0) {
-                    ImportRunStatus.Success
-                } else {
-                    ImportRunStatus.Failed
-                }
-                lastImportError = result.takeIf { it.failedDifficultyCount > 0 }
-                    ?.failures
-                    ?.joinToString("; ") { "${it.difficulty.name}: ${it.message}" }
-                refreshState()
-                Log.i(IMPORT_TAG, "Manual Wahlap import completed: ${result.safeSummary()}")
-            } catch (error: Exception) {
-                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
-                lastImportError = safeMessage
-                importStatus = ImportRunStatus.Failed
-                Log.e(IMPORT_TAG, "Manual Wahlap import failed: $safeMessage")
-            } finally {
-                isImporting = false
-            }
-        }
-    }
     fun startCapturedRealImport(capturedAuthUrl: String) {
         scope.launch {
             isImporting = true
             importStatus = ImportRunStatus.Importing
             lastImportError = null
-            lastRealResult = null
-            val captureStopped = AtomicBoolean(false)
+            val captureStopped = java.util.concurrent.atomic.AtomicBoolean(false)
             fun stopCaptureAfterLogin() {
                 if (captureStopped.compareAndSet(false, true)) {
-                    Log.i(IMPORT_TAG, "Stopping capture services after Wahlap login attempt")
+                    Log.i(TAG, "Stopping capture services after Wahlap login attempt")
                     stopVpnService(context)
                     WahlapHookHttpService.stop(context)
                 }
             }
             try {
-                WahlapHookBridge.setStatus("Captured Wahlap auth; replaying login and importing scores.")
-                Log.i(IMPORT_TAG, "Starting real Wahlap import from captured auth URL")
+                WahlapHookBridge.setStatus("已捕获回跳授权，正在关闭捕获并登录 Wahlap。")
+                Log.i(TAG, "Starting real Wahlap import from captured auth URL")
                 val result = withContext(Dispatchers.IO) {
                     runRealImport(capturedAuthUrl, ::stopCaptureAfterLogin)
                 }
@@ -629,12 +638,12 @@ private fun FluentMaiApp(
                     ?.failures
                     ?.joinToString("; ") { "${it.difficulty.name}: ${it.message}" }
                 refreshState()
-                Log.i(IMPORT_TAG, "Real Wahlap import completed: ${result.safeSummary()}")
+                Log.i(TAG, "real Wahlap import completed: ${result.safeSummary()}")
             } catch (error: Exception) {
                 val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
                 lastImportError = safeMessage
                 importStatus = ImportRunStatus.Failed
-                Log.e(IMPORT_TAG, "Real Wahlap import failed: $safeMessage")
+                Log.e(TAG, "real Wahlap import failed: $safeMessage")
             } finally {
                 stopCaptureAfterLogin()
                 isImporting = false
@@ -643,26 +652,48 @@ private fun FluentMaiApp(
         }
     }
 
-    fun startHookCapture() {
-        WahlapHookHttpService.start(context)
+    fun startManualCookieImport() {
+        val capturedInput = wahlapCookieInput.trim()
+        if (capturedInput.isBlank()) {
+            importStatus = ImportRunStatus.Failed
+            lastImportError = "请先粘贴 Wahlap Cookie 或 Reqable 请求头。"
+            return
+        }
         scope.launch {
-            isPreparingHookLink = true
+            isImporting = true
+            importStatus = ImportRunStatus.Importing
+            lastImportError = null
+            lastRealResult = null
             try {
-                val authUrl = withContext(Dispatchers.IO) {
-                    WahlapWechatAuthUrlClient(authUrlRedactor).maimaiDxAuthUrl()
+                stopVpnService(context)
+                WahlapHookHttpService.stop(context)
+                WahlapHookBridge.finishImport()
+                WahlapHookBridge.setStatus("正在使用 Wahlap Cookie 导入本地成绩。")
+                val result = withContext(Dispatchers.IO) { runCookieImport(capturedInput) }
+                lastRealResult = result
+                importStatus = if (result.failedDifficultyCount == 0 && result.fetchedDifficultyCount > 0) {
+                    ImportRunStatus.Success
+                } else {
+                    ImportRunStatus.Failed
                 }
-                hookLink = authUrl
-                copyTextToClipboard(context, "FluentMai WeChat auth link", authUrl)
-                WahlapHookBridge.setStatus("Wahlap WeChat auth link copied. Open it in WeChat; VPN capture will record the callback.")
+                lastImportError = result.takeIf { it.failedDifficultyCount > 0 }
+                    ?.failures
+                    ?.joinToString("; ") { "${it.difficulty.name}: ${it.message}" }
+                refreshState()
+                Log.i(TAG, "manual Wahlap import completed: ${result.safeSummary()}")
             } catch (error: Exception) {
                 val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
-                hookLink = WahlapHookHttpService.HOOK_URL
-                copyTextToClipboard(context, "FluentMai fallback Hook link", WahlapHookHttpService.HOOK_URL)
-                WahlapHookBridge.setStatus("Auth link generation failed; copied fallback Hook link: $safeMessage")
+                lastImportError = safeMessage
+                importStatus = ImportRunStatus.Failed
+                Log.e(TAG, "manual Wahlap import failed: $safeMessage")
             } finally {
-                isPreparingHookLink = false
+                isImporting = false
             }
         }
+    }
+
+    fun startHookCapture() {
+        WahlapHookHttpService.start(context)
         val vpnPrepareIntent = VpnService.prepare(context)
         if (vpnPrepareIntent != null) {
             vpnPermissionLauncher.launch(vpnPrepareIntent)
@@ -677,11 +708,24 @@ private fun FluentMaiApp(
     }
 
     fun copyHookUrl() {
-        isPreparingHookLink = true
-        hookLink = WahlapHookHttpService.HOOK_URL
-        copyTextToClipboard(context, "FluentMai Wahlap Hook", hookLink)
-        WahlapHookBridge.setStatus("Hook link copied. Open it in WeChat after starting capture.")
-        isPreparingHookLink = false
+        scope.launch {
+            isPreparingHookLink = true
+            try {
+                val authUrl = withContext(Dispatchers.IO) {
+                    WahlapWechatAuthUrlClient(authUrlRedactor).maimaiDxAuthUrl()
+                }
+                hookLink = authUrl
+                copyTextToClipboard(context, "FluentMai 微信授权链接", authUrl)
+                WahlapHookBridge.setStatus("微信授权链接已复制。请发到微信并点开，VPN 会捕获回跳授权。")
+            } catch (error: Exception) {
+                val safeMessage = redactMessage(error.message ?: error::class.java.simpleName)
+                hookLink = WahlapHookHttpService.HOOK_URL
+                copyTextToClipboard(context, "FluentMai 备用 Hook 链接", WahlapHookHttpService.HOOK_URL)
+                WahlapHookBridge.setStatus("生成微信授权链接失败，已复制备用本地链接：$safeMessage")
+            } finally {
+                isPreparingHookLink = false
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -692,6 +736,26 @@ private fun FluentMaiApp(
     LaunchedEffect(Unit) {
         WahlapHookBridge.capturedAuthUrls.collect { capturedAuthUrl ->
             startCapturedRealImport(capturedAuthUrl)
+        }
+    }
+
+    LaunchedEffect(isScoreStateLoaded, scores, chartRecords) {
+        if (!isScoreStateLoaded) return@LaunchedEffect
+        val unmatchedScoreCount = unmatchedScoreCount(scores, chartRecords)
+        val ratingReady = scores.isNotEmpty() && chartRecords.isNotEmpty() && unmatchedScoreCount < scores.size
+        Log.i(
+            TAG,
+            "Scores startup rating state: scoreCount=${scores.size} " +
+                "cachedChartCount=${chartRecords.size} unmatchedScoreCount=$unmatchedScoreCount " +
+                "ratingReady=$ratingReady elapsedMs=${SystemClock.elapsedRealtime() - startupStartedAtMs}",
+        )
+        if (ratingReady && !isRatingReadyLogged) {
+            isRatingReadyLogged = true
+            Log.i(
+                TAG,
+                "Scores startup rating ready in ${SystemClock.elapsedRealtime() - startupStartedAtMs}ms: " +
+                    "scoreCount=${scores.size} chartCount=${chartRecords.size} unmatchedScoreCount=$unmatchedScoreCount",
+            )
         }
     }
 
@@ -711,16 +775,13 @@ private fun FluentMaiApp(
     ) { innerPadding ->
         val modifier = Modifier.padding(innerPadding)
         when (selectedTab) {
-            AppTab.Home -> HomeScreen(
-                totalScoreCount = scoreCount,
-                lastImport = lastImport,
-                isImporting = isImporting,
-                onRunFakeImport = ::startImport,
+            AppTab.Home -> ScoresScreen(
+                scores = scores,
+                charts = chartRecords,
                 modifier = modifier,
             )
 
             AppTab.Import -> ImportScreen(
-                lastResult = lastResult,
                 realImportSummary = lastRealResult?.summaryText(),
                 importStatus = importStatus.label,
                 errorMessage = lastImportError,
@@ -739,7 +800,6 @@ private fun FluentMaiApp(
                 isUploading = isUploading,
                 isPreparingHookLink = isPreparingHookLink,
                 wahlapCookieInput = wahlapCookieInput,
-                onRunFakeImport = ::startImport,
                 onStartHookCapture = ::startHookCapture,
                 onStopHookCapture = ::stopHookCapture,
                 onCopyHookUrl = ::copyHookUrl,
@@ -759,12 +819,6 @@ private fun FluentMaiApp(
                 modifier = modifier,
             )
 
-            AppTab.Scores -> ScoresScreen(
-                scores = scores,
-                charts = chartRecords,
-                modifier = modifier,
-            )
-
             AppTab.Charts -> ChartQueryScreen(
                 charts = chartRecords,
                 scores = scores,
@@ -773,27 +827,82 @@ private fun FluentMaiApp(
                 modifier = modifier,
             )
 
-            AppTab.Quarantine -> QuarantineScreen(
+            AppTab.Settings -> SettingsScreen(
+                appVersion = APP_VERSION,
                 quarantineCount = quarantineCount,
                 records = quarantineRecords,
                 modifier = modifier,
             )
-
-            AppTab.Settings -> SettingsScreen(modifier = modifier)
         }
     }
 }
 
+private fun unmatchedScoreCount(
+    scores: List<ScoreRecord>,
+    charts: List<ChartRecord>,
+): Int {
+    if (scores.isEmpty()) return 0
+    if (charts.isEmpty()) return scores.size
+    val chartTitleKeys = charts
+        .map { chart -> StartupTitleKey(normalizeStartupTitle(chart.title), chart.songType, chart.levelIndex) }
+        .toSet()
+    val chartSongIdKeys = charts
+        .map { chart -> StartupSongIdKey(chart.songId, chart.songType, chart.levelIndex) }
+        .toSet()
+    return scores.count { score ->
+        val titleMatched = StartupTitleKey(normalizeStartupTitle(score.title), score.songType, score.levelIndex) in chartTitleKeys
+        val songIdMatched = score.songId?.let { StartupSongIdKey(it, score.songType, score.levelIndex) in chartSongIdKeys } == true
+        !titleMatched && !songIdMatched
+    }
+}
+
+private data class StartupTitleKey(
+    val title: String,
+    val songType: dev.fluentmai.android.core.model.SongType,
+    val levelIndex: Int,
+)
+
+private data class StartupSongIdKey(
+    val songId: Int,
+    val songType: dev.fluentmai.android.core.model.SongType,
+    val levelIndex: Int,
+)
+
+private fun normalizeStartupTitle(title: String): String =
+    Normalizer.normalize(title.trim(), Normalizer.Form.NFKC).lowercase()
+
 @Composable
 private fun FluentMaiTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = lightColorScheme(
+    val darkTheme = isSystemInDarkTheme()
+    val colorScheme = if (darkTheme) {
+        darkColorScheme(
+            primary = Color(0xFF7DD8C2),
+            secondary = Color(0xFFF1C15E),
+            tertiary = Color(0xFFFFB0CB),
+            background = Color(0xFF101418),
+            surface = Color(0xFF151A20),
+            surfaceVariant = Color(0xFF27313A),
+            onSurface = Color(0xFFE7ECEF),
+            onSurfaceVariant = Color(0xFFC1CBD3),
+            outline = Color(0xFF8A949D),
+            outlineVariant = Color(0xFF414B54),
+        )
+    } else {
+        lightColorScheme(
             primary = Color(0xFF246B5A),
             secondary = Color(0xFF735C0F),
             tertiary = Color(0xFF7A405A),
             background = Color(0xFFFBFCF8),
             surface = Color(0xFFFFFFFF),
-        ),
+            surfaceVariant = Color(0xFFF0F4F7),
+            onSurface = Color(0xFF172027),
+            onSurfaceVariant = Color(0xFF52616C),
+            outline = Color(0xFF707C86),
+            outlineVariant = Color(0xFFD7E0E7),
+        )
+    }
+    MaterialTheme(
+        colorScheme = colorScheme,
         content = content,
     )
 }
@@ -802,31 +911,29 @@ private enum class AppTab(
     val label: String,
     val icon: ImageVector,
 ) {
-    Home("Home", Icons.Filled.Home),
-    Import("Import", Icons.Filled.PlayArrow),
-    Scores("Scores", Icons.Filled.List),
-    Charts("Charts", Icons.Filled.Search),
-    Quarantine("Quarantine", Icons.Filled.Warning),
-    Settings("Settings", Icons.Filled.Settings),
+    Home("首页", Icons.Filled.Home),
+    Import("导入", Icons.Filled.PlayArrow),
+    Charts("谱面", Icons.Filled.Search),
+    Settings("设置", Icons.Filled.Settings),
 }
 
 private enum class ImportRunStatus(val label: String) {
-    Idle("Idle"),
-    Importing("Importing"),
-    Success("Success"),
-    Failed("Failed"),
+    Idle("未开始"),
+    Importing("导入中"),
+    Success("成功"),
+    Failed("失败"),
 }
 
 private enum class UploadRunStatus(val label: String) {
-    Idle("Idle"),
-    Uploading("Uploading"),
-    Success("Success"),
-    CloudMismatch("Uploaded, verify mismatch"),
-    Failed("Failed"),
+    Idle("未开始"),
+    Uploading("上传中"),
+    Success("成功"),
+    CloudMismatch("已上传，校验不一致"),
+    Failed("失败"),
 }
 
 private fun ImportResult.safeSummary(): String =
-    "inserted=$inserted updated=$updated duplicate=$skippedDuplicate quarantined=$quarantined rejected=$rejected"
+    "inserted=$inserted duplicate=$skippedDuplicate quarantined=$quarantined rejected=$rejected"
 
 private fun RealWahlapImportResult.safeSummary(): String =
     "${importResult.safeSummary()} parsed=$parsedRecordCount " +
@@ -834,19 +941,20 @@ private fun RealWahlapImportResult.safeSummary(): String =
         "supplementalPages=$fetchedSupplementalPageCount supplementalParsed=$parsedSupplementalRecordCount"
 
 private fun RealWahlapImportResult.summaryText(): String =
-    "Inserted ${importResult.inserted}, updated ${importResult.updated}, duplicate ${importResult.skippedDuplicate}, " +
-        "quarantined ${importResult.quarantined}, rejected ${importResult.rejected}; " +
-        "fetched $fetchedDifficultyCount difficulties, parsed $parsedRecordCount records, " +
-        "supplemental pages $fetchedSupplementalPageCount, supplemental records $parsedSupplementalRecordCount."
+    "新增 ${importResult.inserted} 条，跳过重复 ${importResult.skippedDuplicate} 条，" +
+        "隔离 ${importResult.quarantined} 条，拒绝 ${importResult.rejected} 条，" +
+        "失败难度 $failedDifficultyCount 个，解析 $parsedRecordCount 条，" +
+        "补充页 $fetchedSupplementalPageCount 个，补充解析 $parsedSupplementalRecordCount 条"
 
 private fun MaimaiUploadResult.safeSummary(): String =
     "platform=${platform.name} success=$success status=$statusCode uploaded=$uploadedScoreCount " +
         "updated=$updatedCount created=$createdCount " +
-        "cloudOnly=${syncDiff?.cloudOnly?.size ?: 0} localOnly=${syncDiff?.localOnly?.size ?: 0}"
+        "cloudOnly=${syncDiff?.cloudOnly?.size ?: 0} localOnly=${syncDiff?.localOnly?.size ?: 0} " +
+        "mismatched=${syncDiff?.valueMismatches?.size ?: 0}"
 
 private fun MaimaiUploadResult.summaryText(): String =
-    "${platform.displayName}: ${displayStatusText()}, " +
-        "$uploadedScoreCount scores, HTTP $statusCode, $message"
+    "${platform.displayName}: ${displayStatusText()}，" +
+        "$uploadedScoreCount 条成绩，HTTP $statusCode，$message"
 
 private fun MaimaiUploadResult.toUploadRunStatus(): UploadRunStatus =
     when {
@@ -857,9 +965,9 @@ private fun MaimaiUploadResult.toUploadRunStatus(): UploadRunStatus =
 
 private fun MaimaiUploadResult.displayStatusText(): String =
     when {
-        success -> "Success"
-        hasCloudLocalDiff -> "Uploaded, verify mismatch"
-        else -> "Failed"
+        success -> "成功"
+        hasCloudLocalDiff -> "已上传，校验不一致"
+        else -> "失败"
     }
 
 private fun startVpnService(context: Context) {

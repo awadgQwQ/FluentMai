@@ -60,7 +60,7 @@ public class CommonMethods {
         data[offset + 1] = (byte) (value);
     }
 
-    // ?????????????????????????????????????
+    // 锟斤拷锟斤拷锟街斤拷顺锟斤拷锟斤拷锟斤拷锟斤拷锟街斤拷顺锟斤拷锟阶拷锟?
 
     public static short htons(short u) {
         int r = ((u & 0xFFFF) << 8) | ((u & 0xFFFF) >> 8);
@@ -88,7 +88,7 @@ public class CommonMethods {
         return r;
     }
 
-    // ????????????
+    // 锟斤拷锟斤拷校锟斤拷锟?
     public static short checksum(long sum, byte[] buf, int offset, int len) {
         sum += getsum(buf, offset, len);
         while ((sum >> 16) > 0)
@@ -110,53 +110,53 @@ public class CommonMethods {
         return sum;
     }
 
-    // ??????IP??????????
+    // 锟斤拷锟斤拷IP锟斤拷锟叫ｏ拷锟斤拷
     public static boolean ComputeIPChecksum(IPHeader ipHeader) {
         short oldCrc = ipHeader.getCrc();
-        ipHeader.setCrc((short) 0);// ?????????????
+        ipHeader.setCrc((short) 0);// 锟斤拷锟斤拷前锟斤拷锟斤拷
         short newCrc = CommonMethods.checksum(0, ipHeader.m_Data,
                 ipHeader.m_Offset, ipHeader.getHeaderLength());
         ipHeader.setCrc(newCrc);
         return oldCrc == newCrc;
     }
 
-    // ??????TCP???UDP?????????
+    // 锟斤拷锟斤拷TCP锟斤拷UDP锟斤拷校锟斤拷锟?
     public static boolean ComputeTCPChecksum(IPHeader ipHeader, TCPHeader tcpHeader) {
-        ComputeIPChecksum(ipHeader);//??????IP??????
-        int ipData_len = ipHeader.getTotalLength() - ipHeader.getHeaderLength();// IP?????????
+        ComputeIPChecksum(ipHeader);//锟斤拷锟斤拷IP校锟斤拷锟?
+        int ipData_len = ipHeader.getTotalLength() - ipHeader.getHeaderLength();// IP锟斤拷莩锟斤拷锟?
         if (ipData_len < 0)
             return false;
-        // ???????????????
+        // 锟斤拷锟斤拷为伪锟阶诧拷锟斤拷
         long sum = getsum(ipHeader.m_Data, ipHeader.m_Offset
                 + IPHeader.offset_src_ip, 8);
         sum += ipHeader.getProtocol() & 0xFF;
         sum += ipData_len;
 
         short oldCrc = tcpHeader.getCrc();
-        tcpHeader.setCrc((short) 0);// ??????????0
+        tcpHeader.setCrc((short) 0);// 锟斤拷锟斤拷前锟斤拷0
 
-        short newCrc = checksum(sum, tcpHeader.m_Data, tcpHeader.m_Offset, ipData_len);// ????????????
+        short newCrc = checksum(sum, tcpHeader.m_Data, tcpHeader.m_Offset, ipData_len);// 锟斤拷锟斤拷校锟斤拷锟?
 
         tcpHeader.setCrc(newCrc);
         return oldCrc == newCrc;
     }
 
-    // ??????TCP???UDP?????????
+    // 锟斤拷锟斤拷TCP锟斤拷UDP锟斤拷校锟斤拷锟?
     public static boolean ComputeUDPChecksum(IPHeader ipHeader, UDPHeader udpHeader) {
-        ComputeIPChecksum(ipHeader);//??????IP??????
-        int ipData_len = ipHeader.getTotalLength() - ipHeader.getHeaderLength();// IP?????????
+        ComputeIPChecksum(ipHeader);//锟斤拷锟斤拷IP校锟斤拷锟?
+        int ipData_len = ipHeader.getTotalLength() - ipHeader.getHeaderLength();// IP锟斤拷莩锟斤拷锟?
         if (ipData_len < 0)
             return false;
-        // ???????????????
+        // 锟斤拷锟斤拷为伪锟阶诧拷锟斤拷
         long sum = getsum(ipHeader.m_Data, ipHeader.m_Offset
                 + IPHeader.offset_src_ip, 8);
         sum += ipHeader.getProtocol() & 0xFF;
         sum += ipData_len;
 
         short oldCrc = udpHeader.getCrc();
-        udpHeader.setCrc((short) 0);// ??????????0
+        udpHeader.setCrc((short) 0);// 锟斤拷锟斤拷前锟斤拷0
 
-        short newCrc = checksum(sum, udpHeader.m_Data, udpHeader.m_Offset, ipData_len);// ????????????
+        short newCrc = checksum(sum, udpHeader.m_Data, udpHeader.m_Offset, ipData_len);// 锟斤拷锟斤拷校锟斤拷锟?
 
         udpHeader.setCrc(newCrc);
         return oldCrc == newCrc;

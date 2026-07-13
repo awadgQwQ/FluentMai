@@ -30,9 +30,31 @@ abstract class FluentMaiDatabase : RoomDatabase() {
                 FluentMaiDatabase::class.java,
                 "fluentmai-phase0.db",
             )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    DELETE FROM score_records
+                    WHERE sourceBatchId IN (
+                        SELECT id FROM import_batches WHERE source LIKE 'asset:%'
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    DELETE FROM quarantine_records
+                    WHERE sourceBatchId IN (
+                        SELECT id FROM import_batches WHERE source LIKE 'asset:%'
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("DELETE FROM import_batches WHERE source LIKE 'asset:%'")
+            }
+        }
 
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {

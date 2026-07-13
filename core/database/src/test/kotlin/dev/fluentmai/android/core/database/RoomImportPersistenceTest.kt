@@ -1,12 +1,14 @@
 package dev.fluentmai.android.core.database
 
 import androidx.room.Room
+import dev.fluentmai.android.core.importer.MaimaiSongCatalog
 import dev.fluentmai.android.core.importer.ImportPersistence
 import dev.fluentmai.android.core.importer.ScoreRecordIds
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongType
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -59,7 +61,7 @@ class RoomImportPersistenceTest {
     }
 
     @Test
-    fun duplicateScoreIsIgnored() = runTest {
+    fun duplicateScoreReplacesExistingRecord() = runTest {
         val score = ScoreRecord(
             id = ScoreRecordIds.idFor("Dupe Song", 3),
             title = "Dupe Song",
@@ -73,12 +75,21 @@ class RoomImportPersistenceTest {
             sourceBatchId = "batch-1",
             importedAt = 1234L,
         )
+        val updatedScore = score.copy(
+            achievement = 100.5,
+            dxScore = 3010,
+            sourceBatchId = "batch-2",
+            importedAt = 5678L,
+        )
 
         persistence.insertScoreRecords(listOf(score))
-        persistence.insertScoreRecords(listOf(score))
-        val count = database.scoreRecordDao().count()
+        persistence.insertScoreRecords(listOf(updatedScore))
+        val records = database.scoreRecordDao().getAll()
 
-        assertEquals(1, count)
+        assertEquals(1, records.size)
+        assertEquals(100.5, records.single().achievement, 0.0001)
+        assertEquals(3010, records.single().dxScore)
+        assertEquals("batch-2", records.single().sourceBatchId)
     }
 
     @Test
@@ -171,6 +182,56 @@ class RoomImportPersistenceTest {
         val existingIds = persistence.findExistingScoreIds(setOf(emptyTitleId))
         assertTrue(existingIds.isEmpty())
         assertEquals(1, database.scoreRecordDao().count())
+    }
+
+    @Test
+    fun repositoryDeletesScoresWhoseChartTypeDoesNotExistInCatalog() = runTest {
+        val valid = ScoreRecord(
+            id = ScoreRecordIds.idFor("DX Only", 4, SongType.DX),
+            title = "DX Only",
+            songType = SongType.DX,
+            difficulty = Difficulty.RE_MASTER,
+            level = "13",
+            levelIndex = 4,
+            achievement = 100.6215,
+            dxScore = 2275,
+            fc = null,
+            fs = "sync",
+            sourceBatchId = "batch-1",
+            importedAt = 1234L,
+        )
+        val invalid = valid.copy(
+            id = ScoreRecordIds.idFor("DX Only", 4, SongType.STANDARD),
+            songType = SongType.STANDARD,
+        )
+        val catalog = MaimaiSongCatalog.fromLxnsSongListJson(
+            """
+            {
+              "songs": [
+                {
+                  "id": 1835,
+                  "title": "DX Only",
+                  "difficulties": {
+                    "standard": [],
+                    "dx": [
+                      {"level": "3"},
+                      {"level": "6"},
+                      {"level": "9+"},
+                      {"level": "11+"},
+                      {"level": "13"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        persistence.insertScoreRecords(listOf(valid, invalid))
+        val deleted = FluentMaiRepository(database).deleteScoresNotInCatalog(catalog)
+
+        assertEquals(1, deleted)
+        assertEquals(listOf(SongType.DX.name), database.scoreRecordDao().getAll().map { it.songType })
     }
 
     @Test

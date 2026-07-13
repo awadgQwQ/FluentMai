@@ -1,8 +1,10 @@
 package dev.fluentmai.android.core.database
 
+import dev.fluentmai.android.core.importer.MaimaiSongCatalog
 import dev.fluentmai.android.core.model.ImportBatch
 import dev.fluentmai.android.core.model.QuarantineRecord
 import dev.fluentmai.android.core.model.ScoreRecord
+import dev.fluentmai.android.core.model.SongType
 
 class FluentMaiRepository(
     private val database: FluentMaiDatabase,
@@ -35,5 +37,21 @@ class FluentMaiRepository(
     suspend fun latestWahlapScorePages(): List<CachedWahlapScorePage> {
         val latestBatch = database.importBatchDao().latest() ?: return emptyList()
         return database.wahlapScorePageDao().forBatch(latestBatch.id).map(WahlapScorePageEntity::toModel)
+    }
+
+    suspend fun deleteScoresNotInCatalog(catalog: MaimaiSongCatalog): Int {
+        val invalidIds = database.scoreRecordDao().getAll()
+            .filter { entity ->
+                val songType = runCatching { SongType.valueOf(entity.songType) }.getOrNull()
+                    ?: return@filter false
+                catalog.chartExists(entity.title, entity.levelIndex, songType) == false
+            }
+            .map { it.id }
+
+        return if (invalidIds.isEmpty()) {
+            0
+        } else {
+            database.scoreRecordDao().deleteByIds(invalidIds)
+        }
     }
 }

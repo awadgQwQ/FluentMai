@@ -1,4 +1,4 @@
-package dev.fluentmai.android
+﻿package dev.fluentmai.android
 
 import android.util.Log
 import dev.fluentmai.android.core.privacy.PrivacyRedactor

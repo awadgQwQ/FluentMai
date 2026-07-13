@@ -125,7 +125,7 @@ public class LocalVpnService extends VpnService implements Runnable {
                     NOTIFICATION_CHANNEL_ID,
                     "FluentMai Hook",
                     NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("???? Hook ?? VPN ??");
+            channel.setDescription("保持微信 Hook 捕获 VPN 运行");
             notificationManager.createNotificationChannel(channel);
         }
 
@@ -143,8 +143,8 @@ public class LocalVpnService extends VpnService implements Runnable {
         }
         Notification notification = builder
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("FluentMai ????????")
-                .setContentText("?? VPN ???????????")
+                .setContentTitle("FluentMai 正在捕获微信授权")
+                .setContentText("保持 VPN 运行以读取舞萌授权跳转")
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .build();

@@ -20,6 +20,7 @@ class WahlapFixtureParserTest {
         val first = records[0]
         assertEquals("PANDORA PARADOXXX", first.title)
         assertEquals(Difficulty.EXPERT, first.difficulty)
+        assertEquals(SongType.DX, first.songType)
         assertEquals(2, first.levelIndex)
         assertEquals(100.5000, first.achievement ?: 0.0, 0.0001)
         assertEquals(3120, first.dxScore)
@@ -99,6 +100,114 @@ class WahlapFixtureParserTest {
     }
 
     @Test
+    fun extractsStandardAndDxSongTypes() {
+        val records = parser.parse(resourceText("wahlap_valid_fixture.html"), Difficulty.EXPERT)
+
+        assertEquals(SongType.DX, records[0].songType)
+        assertEquals(SongType.STANDARD, records[1].songType)
+        assertEquals(SongType.DX, records[2].songType)
+    }
+
+    @Test
+    fun catalogCorrectsDxOnlySongWhenPageTypeSignalIsMissing() {
+        val catalog = MaimaiSongCatalog.fromLxnsSongListJson(
+            """
+            {
+              "songs": [
+                {
+                  "id": 1835,
+                  "title": "DX Only",
+                  "difficulties": {
+                    "standard": [],
+                    "dx": [
+                      {"level": "3"},
+                      {"level": "6"},
+                      {"level": "9+"},
+                      {"level": "11+"},
+                      {"level": "13"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        val parser = WahlapFixtureParser(songCatalog = catalog)
+
+        val records = parser.parse(
+            """
+            <form action="https://maimai.wahlap.com/maimai-mobile/record/musicDetail/" method="GET">
+              <div class="music_name_block">DX Only</div>
+              <div class="music_score_block w_112 t_r f_l f_12">100.6215%</div>
+              <div class="music_score_block w_190 t_r f_l f_12">2,275</div>
+              <img src="images/music_icon_sync.png" class="h_30 f_r">
+            </form>
+            """.trimIndent(),
+            Difficulty.RE_MASTER,
+        )
+
+        assertEquals(SongType.DX, records.single().songType)
+        assertEquals("13", records.single().level)
+        assertEquals(1835, records.single().songId)
+    }
+
+    @Test
+    fun catalogUsesPageLevelToSeparateSdAndDxWhenTypeSignalIsMissing() {
+        val catalog = MaimaiSongCatalog.fromLxnsSongListJson(
+            """
+            {
+              "songs": [
+                {
+                  "id": 1051,
+                  "title": "Destr0yer",
+                  "difficulties": {
+                    "standard": [
+                      {"difficulty": 3, "level": "14"}
+                    ],
+                    "dx": [
+                      {"difficulty": 3, "level": "12+"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        val parser = WahlapFixtureParser(songCatalog = catalog)
+
+        val records = parser.parse(
+            """
+            <form action="https://maimai.wahlap.com/maimai-mobile/record/musicDetail/" method="GET">
+              <div class="music_lv_block">12+</div>
+              <div class="music_name_block">Destr0yer</div>
+              <div class="music_score_block w_112 t_r f_l f_12">99.6112%</div>
+              <div class="music_score_block w_190 t_r f_l f_12">1,627 / 1,806</div>
+              <img src="images/music_icon_fc.png" class="h_30 f_r">
+              <img src="images/music_icon_sync.png" class="h_30 f_r">
+            </form>
+            """.trimIndent(),
+            Difficulty.MASTER,
+        )
+
+        assertEquals(SongType.DX, records.single().songType)
+        assertEquals("12+", records.single().level)
+    }
+
+    @Test
+    fun resolvesSongIdsWhenCatalogIsProvided() {
+        val parser = WahlapFixtureParser(
+            songIdResolver = { title ->
+                if (title == "PANDORA PARADOXXX") 834 else null
+            },
+        )
+
+        val records = parser.parse(resourceText("wahlap_valid_fixture.html"), Difficulty.EXPERT)
+
+        assertEquals(834, records[0].songId)
+        assertNull(records[1].songId)
+    }
+
+    @Test
     fun parsesMixedDifficultyRatingTargetPage() {
         val records = parser.parseMixedDifficultyPage(
             """
@@ -112,9 +221,8 @@ class WahlapFixtureParserTest {
             </form>
             <form action="https://maimai.wahlap.com/maimai-mobile/record/musicDetail/" method="GET">
               <input type="hidden" name="idx" value="synthetic-inline-002">
-              <img src="/maimai-mobile/img/diff_expert.png">
               <div class="music_name_block t_l f_13 break">SYNTHETIC INLINE EXPERT</div>
-              <div class="music_score_block w_150 t_l f_r f_12 p_r">100.5386%</div>
+              <div class="music_score_block w_112 t_r f_l f_12">100.5386%</div>
               <div class="music_lv_block">EXPERT 专家 等级 12+</div>
               <img class="music_kind_icon" src="/maimai-mobile/img/music_dx.png">
             </form>

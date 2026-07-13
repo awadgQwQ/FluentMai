@@ -10,4 +10,3 @@ interface ImportPersistence {
     suspend fun insertQuarantineRecords(records: List<QuarantineRecord>)
     suspend fun insertImportBatch(batch: ImportBatch)
 }
-

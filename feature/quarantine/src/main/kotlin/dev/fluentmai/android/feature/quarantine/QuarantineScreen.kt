@@ -28,12 +28,12 @@ fun QuarantineScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text(text = "Quarantine", style = MaterialTheme.typography.headlineSmall)
-            Text(text = "$quarantineCount quarantined items")
+            Text(text = "隔离区", style = MaterialTheme.typography.headlineSmall)
+            Text(text = "$quarantineCount 条隔离记录")
         }
         if (records.isEmpty()) {
             item {
-                Text(text = "No quarantined records.")
+                Text(text = "没有隔离记录。")
             }
         }
         items(records, key = { it.id }) { record ->
@@ -47,11 +47,10 @@ fun QuarantineScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(text = record.reason, style = MaterialTheme.typography.titleMedium)
-                    Text(text = "Difficulty: ${record.difficulty?.name ?: "unknown"}")
-                    Text(text = "Fingerprint: ${record.rawFingerprint.take(16)}")
+                    Text(text = "难度：${record.difficulty?.name ?: "未知"}")
+                    Text(text = "指纹：${record.rawFingerprint.take(16)}")
                 }
             }
         }
     }
 }
-

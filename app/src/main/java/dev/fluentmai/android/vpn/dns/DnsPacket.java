@@ -53,11 +53,11 @@ public class DnsPacket {
         StringBuilder sb = new StringBuilder();
         int len = 0;
         while (buffer.hasRemaining() && (len = (buffer.get() & 0xFF)) > 0) {
-            if ((len & 0xc0) == 0xc0)// pointer ???2??11??????????????1100 0000
+            if ((len & 0xc0) == 0xc0)// pointer 锟斤拷2位为11锟斤拷示锟斤拷指锟诫。锟界：1100 0000
             {
-                // ??????????????????????????????8????14????????
-                int pointer = buffer.get() & 0xFF;// ???8?
-                pointer |= (len & 0x3F) << 8;// ???6?
+                // 指锟斤拷锟饺≈碉拷锟角耙伙拷纸诘暮锟?位锟接猴拷一锟街节碉拷8位锟斤拷14位锟斤拷值锟斤拷
+                int pointer = buffer.get() & 0xFF;// 锟斤拷8位
+                pointer |= (len & 0x3F) << 8;// 锟斤拷6位
 
                 ByteBuffer newBuffer = ByteBuffer.wrap(buffer.array(), dnsHeaderOffset + pointer, dnsHeaderOffset + buffer.limit());
                 sb.append(ReadDomain(newBuffer, dnsHeaderOffset));
@@ -72,7 +72,7 @@ public class DnsPacket {
         }
 
         if (len == 0 && sb.length() > 0) {
-            sb.deleteCharAt(sb.length() - 1);//??????????.???
+            sb.deleteCharAt(sb.length() - 1);//去锟斤拷末尾锟侥点（.锟斤拷
         }
         return sb.toString();
     }

@@ -96,4 +96,3 @@ public class HttpConnectTunnel extends Tunnel {
         m_Config = null;
     }
 }
-
