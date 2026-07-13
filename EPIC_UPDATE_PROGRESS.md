@@ -563,6 +563,34 @@ Debug APK：
   - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_emulator_tablet.png`
   - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_emulator_tablet_charts_ready.png`
 
+## P2：iOS MVP、共享领域层与 macOS Level 1 验证链
+
+实现：
+
+- 将 `core:model` 从 JVM-only 模块迁移为 Kotlin Multiplatform，保留 JVM target 供现有 Android、Room、导入、上传与各 feature 模块消费，并新增 `iosX64`、`iosArm64`、`iosSimulatorArm64` 静态 `FluentMaiShared.framework` target。Android 工程没有为了形式统一而改写；`core:importer` 的 Jsoup/JSON/Wahlap 链路仍是 JVM-only。
+- 将 7 组既有领域测试从 JUnit 断言迁移到 `kotlin.test` 公共测试源集；NFKC 规范化改为 `expect/actual`，JVM 继续使用 `java.text.Normalizer`，iOS 使用 Foundation compatibility normalization。公共源码已没有 Java、Android 或第三方运行时依赖。
+- 新增面向 Swift 的小型 primitive-only 桥接层：单曲 Rating、Rating 系数、判定损失，以及按当前版本切分 B15/旧版本 B35 的分析器。新测试覆盖 15/35 上限、候补与未来版本隔离、确定性顺序、判定枚举和非法输入；跨平台替换的四位小数格式也由牌子阻塞说明断言锁定。
+- 新增 `iosApp/project.yml` 与完整 SwiftUI MVP。iPhone 使用底部 Tab，iPad regular width 使用侧栏；曲库使用自适应多列卡片。功能包括离线公开曲库启动、标题/曲师/编号/本地别名搜索、标准/DX 与分类筛选、谱面详情、用户自定义别名、本地成绩新增/更新、B15/B35、总 Rating、趋势图、单曲 Rating 与判定损失计算器、当前版本设置，以及 iPhone/iPad/旋转布局。
+- iOS 只打包现有公开 `fixtures/lxns_song_list_fallback.json`。成绩、趋势与自定义别名以 schema v1 JSON 原子写入 iOS Application Support；不读取 Android 数据库，不接收或持久化 Cookie、Token、auth URL 或网页缓存。iOS MVP 暂不移植 Android 账号导入，以避免在没有真实 Mac/iPhone 验证时扩大隐私和回归风险。
+- 新增 `.github/workflows/ios-level1.yml`：在 `macos-15` 上运行公共 Kotlin metadata/JVM 测试，安装 XcodeGen，生成并用 `xcodebuild -list` 检查工程，选择并启动真实可用的 iPhone Simulator，以 unsigned 配置构建、安装和启动 App，等待 5 秒截图，并上传版本信息、共享测试、工程检查、Xcode 构建、启动日志、截图、生成的 pbxproj 与未签名 Simulator App。
+- 新增 `IOS_TESTING.md`，为普通 Mac 测试者记录 JDK/Xcode/XcodeGen 准备、工程生成、唯一 Bundle ID、Team、真机 Run、建议验收路径、崩溃日志与截图/录屏反馈方式，并明确禁止分享登录链接、Cookie、Token、网页缓存、Android 数据库或设备备份。
+
+本机验证：
+
+- `:core:model:compileCommonMainKotlinMetadata`、`:core:model:jvmTest` 与 `:app:compileDebugKotlin` 通过，证明公共领域源码、JVM 变体和 Android 消费链兼容。
+- 干净执行 `.\gradlew.bat test :app:assembleDebug --console=plain`：`BUILD SUCCESSFUL`，45 suites / 206 tests / 0 failures / 0 errors / 0 skipped。
+- 公开曲库 JSON、XcodeGen project spec 和 GitHub Actions YAML 解析通过；全部 Swift 源码使用独立 tree-sitter Swift parser 检查，`ERROR` 节点为 0；`git diff --check` 通过。
+- 对 32 个变更/新增文本文件执行不输出匹配内容的高置信凭证扫描：私钥、AWS/GitHub/Google key、JWT、Bearer secret、凭证赋值、带凭证 URL 与敏感文件路径命中均为 0。
+- Debug APK：19,981,743 bytes；SHA-256 `391C24520E7128044196B3837B81BF0571F38B12E60E5A1922496DAFF3B7026C`。
+- 该 APK 对真机 serial `2923ae26` 执行 `adb install -r` 成功；没有卸载或清除数据，首次安装时间仍为 `2026-06-29 02:36:58`。冷启动 `TotalTime=891ms`，日志中 0 个 fatal 标记，验证结束后已 force-stop。
+- SQLite `integrity_check=ok`、`user_version=6`。覆盖安装后的关键表行数和按主键排序、UTF-8 compact JSON-lines 规范化 SHA-256 与前一 checkpoint 完全一致：
+  - `score_records`：1,619 / `22cc15e4fbcb25b12c4c3af7de962795cce41ce6a7f49e8d32c29ad8e484ea21`
+  - `quarantine_records`：9,983 / `cf8d21c506aabede62b6fed1a10a2e888bdf39dd8acf7de5997b2a23924e0799`
+  - `import_batches`：29 / `b13da25b612c298edc0a6393608890f99ced6e2275d1847c63dbfff1d36c76cc`
+  - `wahlap_score_pages`：5 / `4c7a35fe6d9060b61f71d13f45922a657445e1fb78a721b4fa6fa4564ab8919c`
+  - `rating_history`：0 行。
+- 当前 Windows 主机没有 Swift/Xcode/macOS，且任务明确禁止 push，因此新增 workflow 尚未实际运行，不能宣称 iOS Simulator build 已通过。此 checkpoint 是“Level 1 候选”：工程定义、共享编译、静态 Swift 检查、macOS CI 和人工测试路径已经就绪；只有在后续由用户将本地 commit 推送后取得真实 macOS workflow 成功日志，才能升级为有证据的 Level 1。
+
 ## Checkpoint commits
 
 - `2670892c6ec309d7f628660072bc9dba67980ff8` — `chore: checkpoint pre-epic working tree`

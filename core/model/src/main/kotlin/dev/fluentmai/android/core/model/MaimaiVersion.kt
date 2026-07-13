@@ -1,8 +1,5 @@
 package dev.fluentmai.android.core.model
 
-import java.text.Normalizer
-import java.util.Locale
-
 data class MaimaiMajorVersion(
     val id: Int,
     val name: String,
@@ -62,8 +59,8 @@ fun resolveCurrentMaimaiVersion(
 }
 
 fun normalizeMaimaiVersionName(value: String): String =
-    Normalizer.normalize(value.trim(), Normalizer.Form.NFKC)
-        .lowercase(Locale.ROOT)
+    normalizeUnicodeCompatibility(value.trim())
+        .lowercase()
         .replace(Regex("[\\s._·・:：-]+"), "")
 
 fun sameMaimaiVersionName(left: String, right: String): Boolean =

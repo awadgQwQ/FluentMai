@@ -9,6 +9,9 @@ local.properties
 captures/
 externalNativeBuild/
 .cxx/
+iosApp/*.xcodeproj/
+**/xcuserdata/
+*.xcuserstate
 *.keystore
 *.jks
 

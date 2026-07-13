@@ -1,7 +1,7 @@
 package dev.fluentmai.android.core.model
 
-import java.text.Normalizer
-import java.util.Locale
+import kotlin.math.absoluteValue
+import kotlin.math.roundToLong
 
 /** Stable public chart identity. Room row ids are deliberately not part of it. */
 data class ChartIdentity(
@@ -401,8 +401,8 @@ private fun PlayerChartRecord.plateBlocker(kind: PlateKind): PlateBlocker? {
             val achievement = score?.achievement ?: 0.0
             if (achievement >= 100.0) null else PlateBlocker(
                 this,
-                score?.let { "%.4f%%".format(Locale.US, it.achievement) } ?: "未游玩",
-                "达成率还差 %.4f%%".format(Locale.US, (100.0 - achievement).coerceAtLeast(0.0)),
+                score?.let { "${it.achievement.fixedFourDecimals()}%" } ?: "未游玩",
+                "达成率还差 ${(100.0 - achievement).coerceAtLeast(0.0).fixedFourDecimals()}%",
             )
         }
         PlateKind.EXTREME -> if (fullComboStatus?.satisfiesFullCombo == true) null else PlateBlocker(
@@ -424,11 +424,18 @@ private fun PlayerChartRecord.plateBlocker(kind: PlateKind): PlateBlocker? {
             val achievement = score?.achievement ?: 0.0
             if (achievement >= 80.0) null else PlateBlocker(
                 this,
-                score?.let { "%.4f%%".format(Locale.US, it.achievement) } ?: "未游玩",
-                "距 CLEAR 还差 %.4f%%".format(Locale.US, (80.0 - achievement).coerceAtLeast(0.0)),
+                score?.let { "${it.achievement.fixedFourDecimals()}%" } ?: "未游玩",
+                "距 CLEAR 还差 ${(80.0 - achievement).coerceAtLeast(0.0).fixedFourDecimals()}%",
             )
         }
     }
+}
+
+private fun Double.fixedFourDecimals(): String {
+    val scaled = (this * 10_000.0).roundToLong()
+    val sign = if (scaled < 0L) "-" else ""
+    val magnitude = scaled.absoluteValue
+    return "$sign${magnitude / 10_000}.${(magnitude % 10_000).toString().padStart(4, '0')}"
 }
 
 fun PlayerChartRecord.isEligibleForPlate(kind: PlateKind): Boolean =
@@ -446,12 +453,12 @@ private data class ScoreFallbackKey(
 )
 
 private fun normalizePlayerRecordText(value: String): String =
-    Normalizer.normalize(value.trim(), Normalizer.Form.NFKC)
-        .lowercase(Locale.ROOT)
+    normalizeUnicodeCompatibility(value.trim())
+        .lowercase()
         .replace(Regex("[\\s._·・:：!！?？'\"“”‘’()（）\\[\\]【】/\\\\-]+"), "")
 
 private fun normalizeFlag(value: String?): String =
-    value.orEmpty().trim().lowercase(Locale.ROOT)
+    value.orEmpty().trim().lowercase()
         .replace("+", "plus")
         .replace("_", "")
         .replace("-", "")

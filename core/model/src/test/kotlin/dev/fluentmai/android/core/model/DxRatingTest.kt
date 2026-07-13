@@ -1,7 +1,7 @@
 package dev.fluentmai.android.core.model
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class DxRatingTest {
     @Test

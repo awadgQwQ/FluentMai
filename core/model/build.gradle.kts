@@ -1,16 +1,43 @@
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
-    id("org.jetbrains.kotlin.jvm")
+    id("org.jetbrains.kotlin.multiplatform")
 }
 
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+kotlin {
+    jvm {
+        @OptIn(ExperimentalKotlinGradlePluginApi::class)
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
+
+    val frameworkName = "FluentMaiShared"
+    listOf(
+        iosX64(),
+        iosArm64(),
+        iosSimulatorArm64(),
+    ).forEach { target ->
+        target.binaries.framework {
+            baseName = frameworkName
+            isStatic = true
+        }
+    }
+
+    sourceSets {
+        commonMain {
+            kotlin.srcDir("src/main/kotlin")
+        }
+        commonTest {
+            kotlin.srcDir("src/test/kotlin")
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
+    }
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    kotlinOptions.jvmTarget = "17"
-}
-
-dependencies {
-    testImplementation("junit:junit:4.13.2")
+tasks.register("test") {
+    dependsOn("jvmTest")
 }

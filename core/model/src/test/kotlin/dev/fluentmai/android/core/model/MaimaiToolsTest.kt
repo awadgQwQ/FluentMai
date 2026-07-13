@@ -1,8 +1,8 @@
 package dev.fluentmai.android.core.model
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class MaimaiToolsTest {
     @Test
@@ -24,9 +24,9 @@ class MaimaiToolsTest {
 
     @Test
     fun singleSongRatingRejectsInvalidInputs() {
-        assertThrows(IllegalArgumentException::class.java) { calculateSingleSongRating(0.0, 100.0) }
-        assertThrows(IllegalArgumentException::class.java) { calculateSingleSongRating(13.0, 101.0001) }
-        assertThrows(IllegalArgumentException::class.java) { calculateSingleSongRating(Double.NaN, 100.0) }
+        assertFailsWith<IllegalArgumentException> { calculateSingleSongRating(0.0, 100.0) }
+        assertFailsWith<IllegalArgumentException> { calculateSingleSongRating(13.0, 101.0001) }
+        assertFailsWith<IllegalArgumentException> { calculateSingleSongRating(Double.NaN, 100.0) }
     }
 
     @Test
@@ -64,11 +64,11 @@ class MaimaiToolsTest {
 
     @Test
     fun noteCalculatorRejectsImpossibleCountsAndTargets() {
-        assertThrows(IllegalArgumentException::class.java) {
+        assertFailsWith<IllegalArgumentException> {
             MaimaiNoteCounts(0, 0, 0, 0, 0)
         }
         val notes = MaimaiNoteCounts(1, 0, 0, 0, 0)
-        assertThrows(IllegalArgumentException::class.java) {
+        assertFailsWith<IllegalArgumentException> {
             calculateMaimaiAchievement(notes, MaimaiNoteKind.TAP, MaimaiJudgement.MISS, 2, 80.0)
         }
     }

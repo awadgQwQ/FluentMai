@@ -1,9 +1,9 @@
 package dev.fluentmai.android.core.model
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlayerRecordsTest {
     @Test
@@ -109,6 +109,8 @@ class PlayerRecordsTest {
         assertEquals(2, extreme.completedCount)
         assertEquals(1, maimai.completedCount)
         assertFalse(general.isComplete)
+        assertEquals("99.5000%", general.blockers.single().currentValue)
+        assertEquals("达成率还差 0.5000%", general.blockers.single().requirementGap)
     }
 
     @Test
@@ -131,6 +133,8 @@ class PlayerRecordsTest {
         assertEquals(2, progress.requiredCount)
         assertEquals(1, progress.completedCount)
         assertEquals(1, progress.remainingCount)
+        assertEquals("79.9999%", progress.blockers.single().currentValue)
+        assertEquals("距 CLEAR 还差 0.0001%", progress.blockers.single().requirementGap)
     }
 
     @Test
