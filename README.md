@@ -2,113 +2,141 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-An Android companion for importing, managing, browsing, and syncing maimai DX score data.
+FluentMai is an unofficial Android, local-first score companion for players of the mainland China version of maimai DX. It is currently a public Beta, supports Android 8.0 and later, and is not affiliated with or endorsed by SEGA, Wahlap, Diving Fish, or LXNS.
 
-FluentMai is currently a public beta preview. It is an independent, unofficial application, and upstream data source or third-party API behavior may change without notice.
+- [Download FluentMai v0.2.0 Beta](https://github.com/Daozhu1007/FluentMai-Android/releases/tag/v0.2.0-beta)
+- [Privacy model](docs/PRIVACY_MODEL.md)
+- [Product scope](docs/PRODUCT_SCOPE.md)
+- [Changelog](CHANGELOG.md)
 
-- [Download Beta](https://github.com/Daozhu1007/FluentMai-Android/releases)
-- [Privacy Model](docs/PRIVACY_MODEL.md)
-- [Product Scope](docs/PRODUCT_SCOPE.md)
+## About the project
 
-## Overview
+FluentMai brings the score-import and analysis workflow onto the player's own Android device. Valid imported scores are stored in a local Room database and are used for browsing, B35/B15, Rating, statistics, plate progress, trends, and recommendations. Uploading to a supported community service is optional and always initiated by the user.
 
-FluentMai is a native Android app for players who want a local-first way to bring maimai DX score data onto their own device, inspect it, and optionally sync it to supported community score services.
+Android is the maintained and released platform. The repository also contains experimental iOS and Kotlin Multiplatform work, but there is no installable iOS release for general users.
 
-The project exists to make the import, validation, local storage, score browsing, and upload path easier to test and reason about. Its product direction is deliberately local-first: Room is the source of truth for imported score data, while external sync remains an optional action controlled by the user.
+## Key features
 
-## Key Features
+- Import from Wahlap through the local Hook flow, with a manual fallback when needed.
+- Validate imported records, deduplicate stable SD/DX chart identities, keep valid scores in Room, and isolate suspicious records in quarantine.
+- Calculate DX Rating and the correct old-version B35/current-version B15, without treating future content batches as the current major version.
+- Browse the complete catalog through one unified chart browser and open the same chart detail view from B50, search, plate, and recommendation flows.
+- Search by title, community alias, song ID, BPM, artist, or chart designer, with offline Simplified/Traditional Chinese normalization.
+- Combine difficulty, major version, category, chart-constant range, play status, achievement range/rank, FC, FS, and SD/DX filters.
+- Review player score statistics and data-driven plate progress, including explicit “insufficient data” states.
+- Use a single-chart Rating calculator, a version-name reference, and an achievement/loss calculator that reads note counts from a selected chart while retaining manual input.
+- Track real Rating history and generate explainable improvement suggestions by simulating B35/B15 changes; recommendations are deterministic calculations, not skill predictions.
+- Optionally upload local scores to Diving Fish or LXNS.
+- Use responsive phone-landscape and tablet layouts with a shared Android feature set.
+- Keep new upload tokens and raw Wahlap import pages in the current session only; they are not newly persisted.
 
-- Wahlap auth import through a local Hook flow.
-- Manual Cookie / Reqable import fallback.
-- Local Room score storage.
-- SD/DX chart identity and deduplication.
-- Rating and B50 calculation.
-- Score and chart browsing with search and filtering.
-- Diving Fish and LXNS upload.
-- Guarded Diving Fish rebuild with explicit confirmation.
-- Validation, quarantine, and privacy redaction.
+## Screenshots
 
-## Download & Installation
+| Home B50 | Unified chart browser | Chart detail |
+| --- | --- | --- |
+| <img src="docs/screenshots/home-b50.png" width="260" alt="FluentMai home B50"> | <img src="docs/screenshots/chart-browser.png" width="260" alt="Unified chart browser"> | <img src="docs/screenshots/chart-detail.png" width="260" alt="Unified chart detail"> |
 
-FluentMai currently targets Android 14 and supports Android 8.0 or later (`minSdk 26`).
+| Plate progress | Note-loss calculator |
+| --- | --- |
+| <img src="docs/screenshots/plate-progress.png" width="260" alt="Data-driven plate progress"> | <img src="docs/screenshots/note-calculator.png" width="260" alt="Chart note-loss calculator"> |
 
-1. Open [GitHub Releases](https://github.com/Daozhu1007/FluentMai-Android/releases).
-2. Download the latest beta APK.
-3. Install it on a supported Android device.
-4. Android may ask permission to install an APK from the browser or file manager.
+Screenshots show local test data. Authentication URLs, tokens, cookies, and raw imported pages are deliberately excluded.
 
-## Quick Start
+## Download and installation
 
-1. Open FluentMai.
-2. Import Wahlap data through Hook or the manual fallback.
-3. Review the import result, including rejected or quarantined records.
-4. Browse Rating, B50, scores, and charts.
-5. Optionally sync local scores to Diving Fish or LXNS.
+FluentMai supports Android 8.0 or later (`minSdk 26`) and currently targets Android 14 (`targetSdk 34`).
 
-## Engineering Highlights
+1. Open the [GitHub Release for v0.2.0 Beta](https://github.com/Daozhu1007/FluentMai-Android/releases/tag/v0.2.0-beta).
+2. Download `FluentMai-v0.2.0-beta-android.apk`.
+3. Install it over the existing app. Do not uninstall or clear app data when upgrading.
+4. If prompted, allow APK installation for the browser or file manager you used.
 
-- Modular Android/Kotlin architecture.
-- Local-first Room persistence.
-- Deterministic chart identity including SD/DX.
-- Validation and quarantine pipeline.
-- Rating/B50 regression verification.
-- Ordinary upload and destructive rebuild isolation.
-- Exact-HEAD reproducible build verification for beta assets.
+The v0.2.0 Beta asset is a debug-signed test build because this repository does not contain a trusted release keystore or automated Android release-signing workflow. It is intended for Beta testing, not as a stable production release.
 
-## Project Structure
+## Quick start
 
-- `app` - Android app entry point, navigation, platform integrations, and network transport.
-- `core/model` - Shared score, chart, import, and quarantine models.
-- `core/importer` - Wahlap parsing, catalog handling, validation, and import pipeline logic.
-- `core/database` - Room schema, DAO access, and repository persistence.
-- `core/privacy` - Redaction helpers for logs and user-visible diagnostics.
-- `core/exporter` - Score payload exporters for supported upload formats.
-- `core/upload` - Diving Fish and LXNS upload, verification, and rebuild logic.
-- `feature/home` - Home dashboard UI.
-- `feature/import` - Import workflow UI.
-- `feature/scores` - Rating, B50, score list, and chart browser UI.
-- `feature/settings` - Upload and settings UI.
-- `feature/quarantine` - Quarantine review UI.
+1. Open FluentMai and use the Import tab.
+2. Try the Wahlap Hook flow first; use the manual fallback if the upstream flow requires it.
+3. Review the import summary and any quarantined records.
+4. Check B35/B15 on Home, or use Charts for search, filters, statistics, plate progress, and unified details.
+5. Open Tools for Rating, note-loss/achievement, version reference, Rating Trend, and explainable improvement suggestions.
+6. Enter a Diving Fish or LXNS token only when you choose to upload. Tokens are session-only and must not be shared in issues or logs.
 
-## Build from Source
+## Data and privacy
+
+- The local Room database is the source of truth for imported Android score data.
+- New upload tokens, full authentication URLs, and raw Wahlap pages are not written to Room or ordinary app storage. Tokens and raw pages exist only for the active session/request flow.
+- Import validation, conservative matching, deduplication, and quarantine prevent suspicious records from silently replacing valid results.
+- Diagnostic text is redacted before display or logging. External upload responses are treated as untrusted text.
+- Diving Fish and LXNS uploads are optional and user-triggered.
+- Upgrading does not proactively delete token/page caches that may already exist from an older FluentMai build. The current version stops creating new persistent copies without silently destroying prior app data.
+
+See [Privacy Model](docs/PRIVACY_MODEL.md) and [Import Pipeline](docs/IMPORT_PIPELINE.md) for the detailed boundaries.
+
+## Current limitations
+
+- Upstream Wahlap pages and third-party APIs can change; import or upload may require a future FluentMai update.
+- Kaleid×Scope has a model and unavailable-state UI, but no complete, auditable gate/song data source is connected. FluentMai does not invent this data.
+- This is Beta software and may still have UI issues or device-specific compatibility problems. Not every Android device has been verified.
+- Community aliases depend on validated runtime sources and may be incomplete or temporarily unavailable; ordinary catalog search remains usable.
+- Improvement suggestions are mathematical B35/B15 simulations, not predictions of player skill or chart fit.
+- Users should retain an external backup of important score data, especially before third-party rebuild or sync operations.
+
+## Android build
 
 Requirements:
 
-- Android SDK.
-- JDK 17 compatible with Android Gradle Plugin 8.7.3.
-- `local.properties` with `sdk.dir`, or `ANDROID_HOME` / `ANDROID_SDK_ROOT`.
+- Android SDK with API 34 build support.
+- JDK 17 or a compatible JDK capable of targeting Java 17.
+- `local.properties` containing `sdk.dir`, or a configured `ANDROID_HOME` / `ANDROID_SDK_ROOT`.
 
 Windows:
 
 ```powershell
-.\gradlew.bat test assembleDebug
+.\gradlew.bat test
+.\gradlew.bat :app:assembleDebug
 ```
 
 Unix/macOS:
 
 ```sh
-./gradlew test assembleDebug
+./gradlew test
+./gradlew :app:assembleDebug
 ```
 
-The project uses Android Gradle Plugin 8.7.3, Kotlin 2.0.21, Jetpack Compose, Room, Kotlin coroutines, and Ktor client dependencies.
+The Android app uses Kotlin, Jetpack Compose, Room, coroutines, Ktor, and a modular Gradle project. Release signing credentials are intentionally not stored in the repository.
 
-## Privacy & Security
+## iOS current status
 
-See the [Privacy Model](docs/PRIVACY_MODEL.md) for the current project rules.
+- The repository contains an experimental iOS MVP and a Kotlin Multiplatform shared domain layer.
+- iOS has not reached a formal release.
+- There is currently no iOS Release that general users can install directly.
+- iOS builds and physical-device verification are still in progress.
+- Android is the currently maintained and released platform.
 
-The local Room database is the app's source of truth for imported score data. Secrets and raw auth information must not be committed, and the app is designed so Wahlap auth URLs and upload tokens are held in current UI/app state rather than written to Room. Logs and user-visible diagnostic text use redaction for credential fields, authentication URLs, raw HTML, input values, and token-like response text.
+See [IOS_TESTING.md](IOS_TESTING.md) only if you are a developer testing the experimental MVP on a Mac. iOS is intentionally not listed as a primary download.
 
-Bundled fixtures are synthetic or public test data. External sync to Diving Fish or LXNS is optional.
+## Project structure
 
-## Beta Limitations
+- `app` — Android entry point, navigation, platform networking, and Hook integration.
+- `core/model` — shared score, Rating, version, plate, toolbox, and recommendation domain logic; also the Kotlin Multiplatform domain layer.
+- `core/importer` — Wahlap parsing, public catalog handling, validation, and import pipeline.
+- `core/database` — Android Room schema, migrations, DAOs, and repositories.
+- `core/privacy` — redaction helpers for diagnostics.
+- `core/exporter` and `core/upload` — upload payloads and optional Diving Fish/LXNS flows.
+- `feature/home`, `feature/import`, `feature/scores`, `feature/quarantine`, `feature/settings`, `feature/tools` — Android Compose features.
+- `iosApp` — experimental SwiftUI MVP; not part of the Android Release.
+- `fixtures` — bundled public or synthetic fallback/test data.
+- `docs` — data contracts, privacy, import, plate, alias, toolbox, and recommendation notes.
 
-- FluentMai is beta software and may contain bugs.
-- Upstream page or API changes may break import or sync flows.
-- Users should verify important score data before running a destructive Diving Fish rebuild.
-- Diving Fish rebuild requires explicit confirmation.
+## Third-party data and acknowledgements
+
+FluentMai uses public catalog/version metadata and documented APIs from LXNS, optional upload interfaces from Diving Fish and LXNS, community alias data fetched at runtime from LXNS and YuzuChaN, and public SEGA rules/pages as references for scoring and plate semantics. Alias data is validated and cached privately for local search; the repository does not redistribute a copied community alias database.
+
+MaiproberPlus, EasyMai, maimai.py, and other community projects were useful read-only implementation or behavior references where documented. Mentioning a project does not imply partnership, endorsement, or an official relationship. Dependency notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Disclaimer
 
-FluentMai is an independent, unofficial project.
+FluentMai is an independent, unofficial fan-made tool for the mainland China version of maimai DX. It is not affiliated with, authorized by, or endorsed by SEGA, Wahlap, Diving Fish, LXNS, RankHub, EasyMai, or their operators. All game names, artwork, music metadata, and trademarks belong to their respective owners.
 
-It is not affiliated with or endorsed by SEGA, Wahlap, Diving Fish, or LXNS.
+Use the app and third-party upload services at your own risk. Upstream changes can break imports or synchronization, and important data should be backed up outside the app.
