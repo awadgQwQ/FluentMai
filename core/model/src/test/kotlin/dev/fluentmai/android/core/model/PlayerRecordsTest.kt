@@ -114,6 +114,48 @@ class PlayerRecordsTest {
     }
 
     @Test
+    fun `finale plate includes pandora minor version and excludes official exception`() {
+        val records = buildPlayerRecordCatalog(
+            charts = listOf(
+                chart(834, Difficulty.MASTER, version = 19998, songType = SongType.STANDARD),
+                chart(834, Difficulty.RE_MASTER, version = 19998, songType = SongType.STANDARD),
+                chart(792, Difficulty.MASTER, version = 19904, songType = SongType.STANDARD),
+                chart(900, Difficulty.MASTER, version = 20000, songType = SongType.DX),
+            ),
+            scores = listOf(
+                score(834, Difficulty.MASTER, songType = SongType.STANDARD, achievement = 100.0),
+                score(834, Difficulty.RE_MASTER, songType = SongType.STANDARD, achievement = 100.5),
+                score(792, Difficulty.MASTER, songType = SongType.STANDARD, achievement = 100.5),
+            ),
+        ).records
+
+        val progress = calculatePlateProgress(records, PlateKind.GENERAL, 19900, "FiNALE")
+
+        assertEquals("輝将", progress.plateName)
+        assertEquals(1, progress.requiredCount)
+        assertEquals(1, progress.completedCount)
+        assertEquals(834, progress.eligibleRecords.single().chart.songId)
+        assertTrue(progress.isComplete)
+    }
+
+    @Test
+    fun `milk plus uses snow plate range and official exclusion`() {
+        val records = buildPlayerRecordCatalog(
+            charts = listOf(
+                chart(650, Difficulty.MASTER, version = 19500, songType = SongType.STANDARD),
+                chart(731, Difficulty.MASTER, version = 19502, songType = SongType.STANDARD),
+                chart(800, Difficulty.MASTER, version = 19900, songType = SongType.STANDARD),
+            ),
+            scores = emptyList(),
+        ).records
+
+        val progress = calculatePlateProgress(records, PlateKind.GENERAL, 19500, "MiLK PLUS")
+
+        assertEquals("雪将", progress.plateName)
+        assertEquals(listOf(650), progress.eligibleRecords.map { it.chart.songId })
+    }
+
+    @Test
     fun `conqueror uses standard basic through remaster and eighty percent clear`() {
         val records = buildPlayerRecordCatalog(
             charts = listOf(
@@ -144,78 +186,6 @@ class PlayerRecordsTest {
         assertFalse(progress.dataSufficient)
         assertFalse(progress.isComplete)
         assertTrue(progress.dataMessage!!.contains("版本"))
-    }
-
-    @Test
-    fun `record filters compose version constant state type and status`() {
-        val catalog = buildPlayerRecordCatalog(
-            charts = listOf(
-                chart(1, Difficulty.MASTER, version = 24000, songType = SongType.DX),
-                chart(2, Difficulty.EXPERT, version = 25000, songType = SongType.STANDARD),
-                chart(3, Difficulty.MASTER, version = 25000, songType = SongType.DX),
-            ),
-            scores = listOf(
-                score(1, Difficulty.MASTER, songType = SongType.DX, achievement = 100.5, fc = "app", fs = "fsdp"),
-                score(2, Difficulty.EXPERT, songType = SongType.STANDARD, achievement = 99.0, fc = "fc", fs = "sync"),
-            ),
-        )
-
-        val result = filterPlayerRecords(
-            catalog.records,
-            PlayerRecordFilters(
-                constantMin = 13.0,
-                constantMax = 14.0,
-                difficulty = Difficulty.MASTER,
-                songType = SongType.DX,
-                rank = AchievementRank.SSS_PLUS,
-                fullCombo = FullComboStatus.AP_PLUS,
-                fullSync = FullSyncStatus.FSD_PLUS,
-                played = PlayedFilter.PLAYED,
-                versionAge = VersionAgeFilter.OLD,
-            ),
-            currentVersionId = 25000,
-        )
-
-        assertEquals(listOf(1), result.map { it.chart.songId })
-    }
-
-    @Test
-    fun `plate blocker filter uses the selected rule and eligibility`() {
-        val catalog = buildPlayerRecordCatalog(
-            charts = listOf(
-                chart(1, Difficulty.MASTER),
-                chart(2, Difficulty.MASTER),
-                chart(3, Difficulty.RE_MASTER),
-            ),
-            scores = listOf(
-                score(1, Difficulty.MASTER, achievement = 100.0),
-                score(2, Difficulty.MASTER, achievement = 99.9),
-            ),
-        )
-
-        val blockers = filterPlayerRecords(
-            catalog.records,
-            PlayerRecordFilters(plateBlockerFor = PlateKind.GENERAL),
-            currentVersionId = 25000,
-        )
-
-        assertEquals(listOf(2), blockers.map { it.chart.songId })
-    }
-
-    @Test
-    fun `record sorting has stable chart identity tie breaker`() {
-        val records = buildPlayerRecordCatalog(
-            charts = listOf(chart(3), chart(1), chart(2)),
-            scores = emptyList(),
-        ).records
-
-        val sorted = filterPlayerRecords(
-            records,
-            PlayerRecordFilters(sort = PlayerRecordSort.RATING_DESC),
-            currentVersionId = 25000,
-        )
-
-        assertEquals(listOf(1, 2, 3), sorted.map { it.chart.songId })
     }
 
     private fun chart(

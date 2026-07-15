@@ -7,7 +7,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import dev.fluentmai.android.core.model.SongType
 import dev.fluentmai.android.core.model.ChartAvailability
+import dev.fluentmai.android.core.model.Difficulty
+import dev.fluentmai.android.core.model.PlateKind
 import dev.fluentmai.android.core.model.availability
+import dev.fluentmai.android.core.model.buildPlayerRecordCatalog
+import dev.fluentmai.android.core.model.calculatePlateProgress
 
 class MaimaiSongCatalogTest {
     @Test
@@ -185,5 +189,41 @@ class MaimaiSongCatalogTest {
 
         assertEquals(1809, catalog.idForTitle("Åntinomiε"))
         assertEquals("12+", catalog.levelForTitle("Åntinomiε", 2, SongType.DX))
+    }
+
+    @Test
+    fun fallbackCatalogMatchesVerifiedVersionPlateRequirementCounts() {
+        val json = checkNotNull(javaClass.classLoader?.getResource("lxns_song_list_fallback.json"))
+            .readText(Charsets.UTF_8)
+        val records = buildPlayerRecordCatalog(
+            MaimaiSongCatalog.fromLxnsSongListJson(json).charts(),
+            emptyList(),
+        ).records
+        val expectedCounts = mapOf(
+            19500 to 164,
+            19900 to 180,
+            20000 to 348,
+            21000 to 376,
+            22000 to 492,
+            23000 to 588,
+            24000 to 528,
+            25000 to 616,
+        )
+
+        expectedCounts.forEach { (versionId, expected) ->
+            assertEquals(
+                "version $versionId",
+                expected,
+                calculatePlateProgress(records, PlateKind.GENERAL, versionId, null).requiredCount,
+            )
+        }
+        val finale = calculatePlateProgress(records, PlateKind.GENERAL, 19900, "FiNALE")
+        assertEquals("輝将", finale.plateName)
+        assertTrue(
+            finale.eligibleRecords.any { record ->
+                record.chart.songId == 834 && record.chart.difficulty == Difficulty.MASTER
+            },
+        )
+        assertFalse(finale.eligibleRecords.any { it.chart.songId == 792 })
     }
 }

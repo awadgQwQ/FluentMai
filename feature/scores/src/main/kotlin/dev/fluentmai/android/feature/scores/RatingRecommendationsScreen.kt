@@ -13,9 +13,13 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +45,9 @@ internal fun RatingRecommendationsContent(
     state: PlayerRecordsUiState,
     viewModel: PlayerRecordsViewModel,
     onChartSelected: (ChartIdentity) -> Unit,
+    destination: PlayerProgressDestination,
+    onDestinationChanged: (PlayerProgressDestination) -> Unit,
+    onBack: () -> Unit,
     modifier: Modifier,
 ) {
     val result = state.recommendationResult
@@ -52,7 +59,12 @@ internal fun RatingRecommendationsContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            RecommendationHeader(state, viewModel)
+            RecommendationHeader(
+                state = state,
+                destination = destination,
+                onDestinationChanged = onDestinationChanged,
+                onBack = onBack,
+            )
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             RecommendationFilters(state, viewModel)
@@ -95,7 +107,12 @@ internal fun RatingRecommendationsContent(
 }
 
 @Composable
-private fun RecommendationHeader(state: PlayerRecordsUiState, viewModel: PlayerRecordsViewModel) {
+private fun RecommendationHeader(
+    state: PlayerRecordsUiState,
+    destination: PlayerProgressDestination,
+    onDestinationChanged: (PlayerProgressDestination) -> Unit,
+    onBack: () -> Unit,
+) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -106,8 +123,11 @@ private fun RecommendationHeader(state: PlayerRecordsUiState, viewModel: PlayerR
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回首页")
+                }
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("可解释推分建议", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("推分建议", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
                         "只模拟真实成绩、谱面定数和当前 B35/B15 尾部，不评估技术风格，也不声称“最适合”。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -117,7 +137,7 @@ private fun RecommendationHeader(state: PlayerRecordsUiState, viewModel: PlayerR
                     Text("计算中", color = MaterialTheme.colorScheme.primary)
                 }
             }
-            SectionSwitch(state.section, viewModel::updateSection)
+            PlayerProgressSwitch(destination, onDestinationChanged)
         }
     }
 }

@@ -1,6 +1,7 @@
 package dev.fluentmai.android.feature.scores
 
 import dev.fluentmai.android.core.model.ChartRecord
+import dev.fluentmai.android.core.model.AchievementRank
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.model.FullComboStatus
 import dev.fluentmai.android.core.model.FullSyncStatus
@@ -9,10 +10,17 @@ import dev.fluentmai.android.core.model.SongAliasCatalog
 import dev.fluentmai.android.core.model.SongAliasEntry
 import dev.fluentmai.android.core.model.SongType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChartQueryEngineTest {
+    @Test
+    fun exactLevelInputValidationAcceptsOnlySupportedModes() {
+        listOf("", "13", "13+", "13.3", "15", " 14+ ").forEach { assertTrue(it, isValidLevelQuery(it)) }
+        listOf("0", "15+", "13.33", "13.", "abc", "16.0").forEach { assertFalse(it, isValidLevelQuery(it)) }
+    }
+
     @Test
     fun indexedSearchSupportsFieldsAliasesIdsAndPlayedStatus() {
         val target = chart(
@@ -47,10 +55,23 @@ class ChartQueryEngineTest {
     }
 
     @Test
+    fun universalSearchNormalizesSimplifiedAndTraditionalChinese() {
+        val traditional = chart(songId = 10, title = "華火職人", levelValue = 13.0)
+        val simplified = chart(songId = 11, title = "华火职人", levelValue = 13.0)
+        val engine = ChartQueryEngine.create(listOf(traditional, simplified), emptyList())
+
+        val simplifiedQuery = engine.query(ChartQueryFilters(searchQuery = "华火职人"), currentVersion = 25_500)
+        val traditionalQuery = engine.query(ChartQueryFilters(searchQuery = "華火職人"), currentVersion = 25_500)
+
+        assertEquals(setOf(10, 11), simplifiedQuery.items.map { it.chart.songId }.toSet())
+        assertEquals(setOf(10, 11), traditionalQuery.items.map { it.chart.songId }.toSet())
+    }
+
+    @Test
     fun currentVersionFilterAndDeterministicSortStayStable() {
         val currentLow = chart(songId = 2, title = "B", levelValue = 13.0, songVersion = 25_500)
         val currentHigh = chart(songId = 1, title = "A", levelValue = 14.0, songVersion = 25_500)
-        val future = chart(songId = 3, title = "Future", levelValue = 15.0, songVersion = 25_501)
+        val future = chart(songId = 3, title = "Future", levelValue = 15.0, songVersion = 26_000)
         val result = ChartQueryEngine.create(listOf(currentLow, future, currentHigh), emptyList()).query(
             filters = ChartQueryFilters(
                 version = ChartVersionFilter.Current,
@@ -61,6 +82,20 @@ class ChartQueryEngineTest {
 
         assertEquals(2, result.matchingCount)
         assertEquals(listOf(currentHigh, currentLow), result.items.map { it.chart })
+    }
+
+    @Test
+    fun versionFilterUsesCanonicalMinorVersionBoundaries() {
+        val pandora = chart(songId = 834, title = "PANDORA PARADOXXX", songVersion = 19_998)
+        val finaleStart = chart(songId = 800, title = "EVERGREEN", songVersion = 19_900)
+        val milkPlus = chart(songId = 650, title = "Let's Go Away", songVersion = 19_500)
+
+        val result = ChartQueryEngine.create(listOf(pandora, finaleStart, milkPlus), emptyList()).query(
+            filters = ChartQueryFilters(version = ChartVersionFilter.Finale),
+            currentVersion = 25_500,
+        )
+
+        assertEquals(setOf(800, 834), result.items.map { it.chart.songId }.toSet())
     }
 
     @Test
@@ -99,6 +134,34 @@ class ChartQueryEngineTest {
         )
 
         assertEquals(listOf(matching), result.items.map { it.chart })
+    }
+
+    @Test
+    fun unifiedBrowserProvidesRankFilteringAndCurrentConditionStats() {
+        val sssPlus = chart(songId = 1, title = "SSS Plus", levelValue = 13.7)
+        val sss = chart(songId = 2, title = "SSS", levelValue = 13.6)
+        val unplayed = chart(songId = 3, title = "Unplayed", levelValue = 13.5)
+        val engine = ChartQueryEngine.create(
+            charts = listOf(sssPlus, sss, unplayed),
+            scores = listOf(
+                scoreFor(sssPlus).copy(achievement = 100.5, fc = "app", fs = "fsdp"),
+                scoreFor(sss).copy(achievement = 100.0, fc = "fc", fs = "fs"),
+            ),
+        )
+
+        val all = engine.query(ChartQueryFilters(), currentVersion = 25_500)
+        assertEquals(3, all.stats.totalCharts)
+        assertEquals(2, all.stats.playedCharts)
+        assertEquals(1, all.stats.unplayedCharts)
+        assertEquals(1, all.stats.rankCounts[AchievementRank.SSS_PLUS])
+        assertEquals(1, all.stats.rankCounts[AchievementRank.SSS])
+
+        val exact = engine.query(
+            ChartQueryFilters(rank = AchievementRank.SSS, sort = ChartSort.RatingDesc),
+            currentVersion = 25_500,
+        )
+        assertEquals(listOf(sss), exact.items.map { it.chart })
+        assertEquals(1, exact.stats.totalCharts)
     }
 
     private fun chart(

@@ -74,7 +74,9 @@ class MaimaiSongCatalog private constructor(
             for (index in 0 until songs.length()) {
                 val song = songs.optJSONObject(index) ?: continue
                 val id = song.optInt("id", -1)
-                val title = song.optString("title").takeIf { it.isNotBlank() }
+                // A released song (ID 1422) intentionally uses an ideographic-space
+                // title. Empty means missing; whitespace can be valid catalog data.
+                val title = song.optString("title").takeIf { it.isNotEmpty() }
                 if (id >= 0 && title != null) {
                     val artist = song.optString("artist")
                     val genre = song.optString("genre")

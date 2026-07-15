@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -28,21 +31,27 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -50,8 +59,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +80,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.ChartIdentity
+import dev.fluentmai.android.core.model.AchievementRank
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.model.FullComboStatus
 import dev.fluentmai.android.core.model.FullSyncStatus
@@ -80,19 +92,24 @@ import dev.fluentmai.android.core.model.SongType
 import dev.fluentmai.android.core.model.buildMaimaiBestSet
 import dev.fluentmai.android.core.model.calculateDxRating
 import dev.fluentmai.android.core.model.matchChartsForScores
-import dev.fluentmai.android.core.model.maimaiRatedScoreComparator
 import dev.fluentmai.android.core.model.maimaiVersionNameFor
 import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
 import java.text.Normalizer
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ScoresScreen(
     scores: List<ScoreRecord>,
     charts: List<ChartRecord>,
     majorVersions: List<MaimaiMajorVersion>,
+    onOpenPlayedCharts: () -> Unit = {},
+    onOpenPlates: () -> Unit = {},
+    onOpenRecommendations: () -> Unit = {},
     onChartSelected: (ChartIdentity) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -103,19 +120,12 @@ fun ScoresScreen(
     val bestSet = remember(enrichedScores, currentVersion) {
         buildMaimaiBestSet(enrichedScores, currentVersion)
     }
-    var mode by remember { mutableStateOf(ScoreMode.Best50) }
-    var searchQuery by remember { mutableStateOf("") }
-
-    val visibleScores = remember(enrichedScores, mode, searchQuery, bestSet) {
-        val source = when (mode) {
-            ScoreMode.Best50 -> bestSet.all
-            ScoreMode.All -> enrichedScores.sortedWith(maimaiRatedScoreComparator)
-        }
-        source.filter { it.matches(searchQuery) }
-    }
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
 
     LazyVerticalGrid(
         modifier = modifier.fillMaxSize(),
+        state = gridState,
         columns = GridCells.Adaptive(320.dp),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -129,11 +139,16 @@ fun ScoresScreen(
             )
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            ScoreControls(
-                mode = mode,
-                onModeChanged = { mode = it },
-                searchQuery = searchQuery,
-                onSearchQueryChanged = { searchQuery = it },
+            HomeActions(
+                oldBestCount = bestSet.oldBest.size,
+                newBestCount = bestSet.newBest.size,
+                onJumpToOldBest = { scope.launch { gridState.animateScrollToItem(HOME_OLD_BEST_HEADER_INDEX) } },
+                onJumpToNewBest = {
+                    scope.launch { gridState.animateScrollToItem(HOME_NEW_BEST_HEADER_BASE_INDEX + bestSet.oldBest.size) }
+                },
+                onOpenPlayedCharts = onOpenPlayedCharts,
+                onOpenPlates = onOpenPlates,
+                onOpenRecommendations = onOpenRecommendations,
             )
         }
 
@@ -141,11 +156,7 @@ fun ScoresScreen(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 EmptyState(text = "还没有导入成绩")
             }
-        } else if (visibleScores.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                EmptyState(text = "没有匹配的成绩")
-            }
-        } else if (mode == ScoreMode.Best50 && searchQuery.isBlank()) {
+        } else {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 SectionTitle("旧版本 Best 35", bestSet.oldBest.size)
             }
@@ -158,11 +169,27 @@ fun ScoresScreen(
             items(bestSet.newBest, key = { "new-${it.score.id}" }) { item ->
                 ScoreCard(item = item, rank = bestSet.newBest.indexOf(item) + 1, onChartSelected = onChartSelected)
             }
-        } else {
-            items(visibleScores, key = { it.score.id }) { item ->
-                ScoreCard(item = item, rank = visibleScores.indexOf(item) + 1, onChartSelected = onChartSelected)
-            }
         }
+    }
+}
+
+@Composable
+fun ChartQueryPrewarmer(
+    charts: List<ChartRecord>,
+    scores: List<ScoreRecord>,
+    majorVersions: List<MaimaiMajorVersion>,
+    aliases: SongAliasCatalog = SongAliasCatalog.Empty,
+    playedPresetActive: Boolean = false,
+) {
+    val queryViewModel: ChartQueryViewModel = viewModel()
+    val currentVersion = remember(majorVersions, charts) {
+        resolveCurrentMaimaiVersion(majorVersions, charts)?.majorVersion?.id ?: 0
+    }
+    SideEffect {
+        queryViewModel.submitCatalog(charts, scores, currentVersion, aliases)
+    }
+    LaunchedEffect(playedPresetActive) {
+        if (playedPresetActive) queryViewModel.enterPlayedPreset() else queryViewModel.exitPreset()
     }
 }
 
@@ -174,6 +201,8 @@ fun ChartQueryScreen(
     aliases: SongAliasCatalog = SongAliasCatalog.Empty,
     isLoading: Boolean,
     onRefresh: () -> Unit,
+    playedPresetActive: Boolean = false,
+    onDismissPlayedPreset: () -> Unit = {},
     onChartSelected: (ChartIdentity) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -213,6 +242,16 @@ fun ChartQueryScreen(
                 onRefresh = onRefresh,
             )
         }
+        if (playedPresetActive) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                PlayedPresetBanner(
+                    onReset = {
+                        queryViewModel.resetFilters()
+                        onDismissPlayedPreset()
+                    },
+                )
+            }
+        }
         item(span = { GridItemSpan(maxLineSpan) }) {
             ChartFilters(
                 searchQuery = filters.searchQuery,
@@ -235,6 +274,8 @@ fun ChartQueryScreen(
                 achievementMin = filters.achievementMin,
                 achievementMax = filters.achievementMax,
                 onAchievementRangeChanged = queryViewModel::updateAchievementRange,
+                rankFilter = filters.rank,
+                onRankChanged = queryViewModel::updateRank,
                 fullCombo = filters.fullCombo,
                 onFullComboChanged = queryViewModel::updateFullCombo,
                 fullSync = filters.fullSync,
@@ -243,8 +284,14 @@ fun ChartQueryScreen(
                 onSortModeChanged = queryViewModel::updateSort,
                 hasActiveFilters = filters != ChartQueryFilters(),
                 activeAdvancedFilters = filters.activeAdvancedLabels(),
-                onReset = queryViewModel::resetFilters,
+                onReset = {
+                    queryViewModel.resetFilters()
+                    if (playedPresetActive) onDismissPlayedPreset()
+                },
             )
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            ChartStatsSummary(stats = uiState.result.stats, isFiltering = uiState.isIndexing || uiState.isFiltering)
         }
 
         if (charts.isEmpty() && !isLoading) {
@@ -271,6 +318,72 @@ fun ChartQueryScreen(
                     score = item.score,
                     onClick = { onChartSelected(ChartIdentity.from(item.chart)) },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayedPresetBanner(onReset: () -> Unit) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("首页临时视图 · 已游玩", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "离开谱面后恢复之前的筛选条件。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onReset) { Text("回到默认") }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChartStatsSummary(stats: ChartQueryStats, isFiltering: Boolean) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${stats.totalCharts} 谱面 · ${stats.playedCharts} 已游玩 · " +
+                        "${stats.unplayedCharts} 未游玩 · ${stats.rankCounts[AchievementRank.SSS_PLUS] ?: 0} SSS+",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "收起" else if (isFiltering) "更新中" else "详情")
+                }
+            }
+            if (expanded) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AchievementRank.entries.forEach { rank ->
+                        MetricChip(rank.displayName, (stats.rankCounts[rank] ?: 0).toString())
+                    }
+                    FullComboStatus.entries.filter { it != FullComboStatus.UNKNOWN }.forEach { status ->
+                        MetricChip(status.displayName, (stats.fullComboCounts[status] ?: 0).toString())
+                    }
+                    FullSyncStatus.entries.filter { it != FullSyncStatus.UNKNOWN }.forEach { status ->
+                        MetricChip(status.displayName, (stats.fullSyncCounts[status] ?: 0).toString())
+                    }
+                }
             }
         }
     }
@@ -339,32 +452,46 @@ private fun ChartHeader(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ScoreControls(
-    mode: ScoreMode,
-    onModeChanged: (ScoreMode) -> Unit,
-    searchQuery: String,
-    onSearchQueryChanged: (String) -> Unit,
+private fun HomeActions(
+    oldBestCount: Int,
+    newBestCount: Int,
+    onJumpToOldBest: () -> Unit,
+    onJumpToNewBest: () -> Unit,
+    onOpenPlayedCharts: () -> Unit,
+    onOpenPlates: () -> Unit,
+    onOpenRecommendations: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(ScoreMode.entries.size) { index ->
-                val item = ScoreMode.entries[index]
-                FilterChip(
-                    selected = mode == item,
-                    onClick = { onModeChanged(item) },
-                    label = { Text(item.label) },
-                )
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("B50 快速跳转", style = MaterialTheme.typography.labelLarge)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = false,
+                onClick = onJumpToOldBest,
+                label = { Text("旧版本 B35 · $oldBestCount 张") },
+            )
+            FilterChip(
+                selected = false,
+                onClick = onJumpToNewBest,
+                label = { Text("当前版本 B15 · $newBestCount 张") },
+            )
         }
-        SearchField(
-            value = searchQuery,
-            onValueChanged = onSearchQueryChanged,
-            label = "搜索曲名 / 难度 / 等级",
-        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            TextButton(onClick = onOpenPlayedCharts) { Text("查看已游玩谱面") }
+            TextButton(onClick = onOpenPlates) { Text("牌子进度") }
+            TextButton(onClick = onOpenRecommendations) { Text("推分建议") }
+        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChartFilters(
     searchQuery: String,
@@ -387,6 +514,8 @@ private fun ChartFilters(
     achievementMin: Double?,
     achievementMax: Double?,
     onAchievementRangeChanged: (Double?, Double?) -> Unit,
+    rankFilter: AchievementRank?,
+    onRankChanged: (AchievementRank?) -> Unit,
     fullCombo: FullComboStatus?,
     onFullComboChanged: (FullComboStatus?) -> Unit,
     fullSync: FullSyncStatus?,
@@ -397,7 +526,15 @@ private fun ChartFilters(
     activeAdvancedFilters: List<String>,
     onReset: () -> Unit,
 ) {
-    var advancedExpanded by rememberSaveable { mutableStateOf(false) }
+    var advancedFiltersRequested by rememberSaveable { mutableStateOf(false) }
+    var showAdvancedFilters by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(advancedFiltersRequested) {
+        if (advancedFiltersRequested && !showAdvancedFilters) {
+            // Commit the chip's selected state before mounting the heavier modal content.
+            withFrameNanos { }
+            showAdvancedFilters = true
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -424,7 +561,13 @@ private fun ChartFilters(
             onValueChange = onLevelQueryChanged,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            isError = !isValidLevelQuery(levelQuery),
             label = { Text("等级或内部定数：13、13+、13.3") },
+            supportingText = if (!isValidLevelQuery(levelQuery)) {
+                { Text("请输入 1–15、1+–14+，或一位小数定数") }
+            } else {
+                null
+            },
             trailingIcon = {
                 if (levelQuery.isNotBlank()) {
                     IconButton(onClick = { onLevelQueryChanged("") }) {
@@ -433,158 +576,249 @@ private fun ChartFilters(
                 }
             },
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            QuickFilterMenu(
+                label = selectedDifficulty?.displayName() ?: "全部难度",
+                active = selectedDifficulty != null,
+                values = listOf(null to "全部难度") + Difficulty.entries.map { it to it.displayName() },
+                onSelected = onDifficultyChanged,
+            )
+            QuickFilterMenu(
+                label = versionFilter.label,
+                active = versionFilter != ChartVersionFilter.All,
+                values = ChartVersionFilter.entries.map { it to it.label },
+                onSelected = onVersionFilterChanged,
+            )
+            QuickFilterMenu(
+                label = genreFilter.label,
+                active = genreFilter != ChartGenreFilter.All,
+                values = ChartGenreFilter.entries.map { it to it.label },
+                onSelected = onGenreFilterChanged,
+            )
+            QuickFilterMenu(
+                label = statusFilter.label,
+                active = statusFilter != ChartStatusFilter.All,
+                values = ChartStatusFilter.entries.map { it to it.label },
+                onSelected = onStatusFilterChanged,
+            )
+            QuickFilterMenu(
+                label = sortMode.label,
+                active = sortMode != ChartSort.ConstantDesc,
+                values = ChartSort.entries.map { it to it.label },
+                onSelected = onSortModeChanged,
+            )
             FilterChip(
-                selected = advancedExpanded,
-                onClick = { advancedExpanded = !advancedExpanded },
+                selected = advancedFiltersRequested || showAdvancedFilters,
+                onClick = { advancedFiltersRequested = true },
                 label = {
-                    Text(
-                        if (activeAdvancedFilters.isEmpty()) "更多筛选" else "更多筛选 · ${activeAdvancedFilters.size}",
-                    )
+                    Text(if (activeAdvancedFilters.isEmpty()) "更多筛选" else "更多筛选 · ${activeAdvancedFilters.size}")
                 },
             )
-            if (advancedExpanded) {
-                Text("定数 / 难度 / 版本 / 成绩状态", style = MaterialTheme.typography.labelMedium)
-            }
         }
-        if (!advancedExpanded && activeAdvancedFilters.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(activeAdvancedFilters.size) { index ->
-                    AssistChip(
-                        onClick = { advancedExpanded = true },
-                        label = { Text(activeAdvancedFilters[index]) },
-                    )
+        if (activeAdvancedFilters.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                activeAdvancedFilters.forEach { label ->
+                    AssistChip(onClick = { advancedFiltersRequested = true }, label = { Text(label) })
                 }
             }
         }
-        if (advancedExpanded) {
-        ConstantRangeFilter(
-            minimum = constantMin,
-            maximum = constantMax,
-            onRangeChanged = onConstantRangeChanged,
+    }
+    if (showAdvancedFilters) {
+        AdvancedChartFiltersSheet(
+            constantMin = constantMin,
+            constantMax = constantMax,
+            onConstantRangeChanged = onConstantRangeChanged,
+            songType = songType,
+            onSongTypeChanged = onSongTypeChanged,
+            achievementMin = achievementMin,
+            achievementMax = achievementMax,
+            onAchievementRangeChanged = onAchievementRangeChanged,
+            rankFilter = rankFilter,
+            onRankChanged = onRankChanged,
+            fullCombo = fullCombo,
+            onFullComboChanged = onFullComboChanged,
+            fullSync = fullSync,
+            onFullSyncChanged = onFullSyncChanged,
+            onReset = onReset,
+            onDismiss = {
+                showAdvancedFilters = false
+                advancedFiltersRequested = false
+            },
         )
-        ChipRow {
-            FilterChip(
-                selected = selectedDifficulty == null,
-                onClick = { onDifficultyChanged(null) },
-                label = { Text("全部难度") },
-            )
-            Difficulty.entries.forEach { difficulty ->
-                FilterChip(
-                    selected = selectedDifficulty == difficulty,
-                    onClick = { onDifficultyChanged(difficulty) },
-                    label = { Text(difficulty.displayName()) },
-                )
-            }
-        }
-        ChipRow {
-            ChartGenreFilter.entries.forEach { item ->
-                FilterChip(
-                    selected = genreFilter == item,
-                    onClick = { onGenreFilterChanged(item) },
-                    label = { Text(item.label) },
-                )
-            }
-        }
-        ChipRow {
-            ChartVersionFilter.entries.forEach { item ->
-                FilterChip(
-                    selected = versionFilter == item,
-                    onClick = { onVersionFilterChanged(item) },
-                    label = { Text(item.label) },
-                )
-            }
-        }
-        ChipRow {
-            FilterChip(
-                selected = songType == null,
-                onClick = { onSongTypeChanged(null) },
-                label = { Text("SD / DX") },
-            )
-            SongType.entries.forEach { type ->
-                FilterChip(
-                    selected = songType == type,
-                    onClick = { onSongTypeChanged(type) },
-                    label = { Text(type.displayName()) },
-                )
-            }
-        }
-        ChipRow {
-            ChartStatusFilter.entries.forEach { item ->
-                FilterChip(
-                    selected = statusFilter == item,
-                    onClick = { onStatusFilterChanged(item) },
-                    label = { Text(item.label) },
-                )
-            }
-        }
-        AchievementRangeFilter(
-            minimum = achievementMin,
-            maximum = achievementMax,
-            onRangeChanged = onAchievementRangeChanged,
+    }
+}
+
+@Composable
+private fun <T> QuickFilterMenu(
+    label: String,
+    active: Boolean,
+    values: List<Pair<T, String>>,
+    onSelected: (T) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        FilterChip(
+            selected = active,
+            onClick = { expanded = true },
+            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            trailingIcon = { Icon(Icons.Filled.ExpandMore, contentDescription = null) },
         )
-        ChipRow {
-            FilterChip(
-                selected = fullCombo == null,
-                onClick = { onFullComboChanged(null) },
-                label = { Text("全部 FC") },
-            )
-            FullComboStatus.entries.filter { it != FullComboStatus.UNKNOWN }.forEach { status ->
-                FilterChip(
-                    selected = fullCombo == status,
-                    onClick = { onFullComboChanged(status) },
-                    label = { Text(status.displayName) },
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            values.forEach { (value, text) ->
+                DropdownMenuItem(
+                    text = { Text(text) },
+                    onClick = {
+                        expanded = false
+                        onSelected(value)
+                    },
                 )
             }
         }
-        ChipRow {
-            FilterChip(
-                selected = fullSync == null,
-                onClick = { onFullSyncChanged(null) },
-                label = { Text("全部 FS") },
-            )
-            FullSyncStatus.entries.filter { it != FullSyncStatus.UNKNOWN }.forEach { status ->
-                FilterChip(
-                    selected = fullSync == status,
-                    onClick = { onFullSyncChanged(status) },
-                    label = { Text(status.displayName) },
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun AdvancedChartFiltersSheet(
+    constantMin: Double?,
+    constantMax: Double?,
+    onConstantRangeChanged: (Double?, Double?) -> Unit,
+    songType: SongType?,
+    onSongTypeChanged: (SongType?) -> Unit,
+    achievementMin: Double?,
+    achievementMax: Double?,
+    onAchievementRangeChanged: (Double?, Double?) -> Unit,
+    rankFilter: AchievementRank?,
+    onRankChanged: (AchievementRank?) -> Unit,
+    fullCombo: FullComboStatus?,
+    onFullComboChanged: (FullComboStatus?) -> Unit,
+    fullSync: FullSyncStatus?,
+    onFullSyncChanged: (FullSyncStatus?) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("更多筛选", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text(
+                            "范围与成绩条件会使用同一套谱面结果。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = onReset) { Text("全部重置") }
+                }
+            }
+            item {
+                ConstantRangeFilter(
+                    minimum = constantMin,
+                    maximum = constantMax,
+                    onRangeChanged = onConstantRangeChanged,
                 )
             }
+            item {
+                FilterGroup(title = "谱面类型") {
+                    listOf<SongType?>(null, SongType.STANDARD, SongType.DX).forEach { type ->
+                        FilterChip(
+                            selected = songType == type,
+                            onClick = { onSongTypeChanged(type) },
+                            label = { Text(type?.displayName() ?: "SD / DX") },
+                        )
+                    }
+                }
+            }
+            item {
+                AchievementRangeFilter(
+                    minimum = achievementMin,
+                    maximum = achievementMax,
+                    onRangeChanged = onAchievementRangeChanged,
+                )
+            }
+            item {
+                FilterGroup(title = "成绩等级") {
+                    FilterChip(
+                        selected = rankFilter == null,
+                        onClick = { onRankChanged(null) },
+                        label = { Text("全部等级") },
+                    )
+                    AchievementRank.entries.forEach { rank ->
+                        FilterChip(
+                            selected = rankFilter == rank,
+                            onClick = { onRankChanged(rank) },
+                            label = { Text(rank.displayName) },
+                        )
+                    }
+                }
+            }
+            item {
+                FilterGroup(title = "FC 状态") {
+                    FilterChip(
+                        selected = fullCombo == null,
+                        onClick = { onFullComboChanged(null) },
+                        label = { Text("全部 FC") },
+                    )
+                    FullComboStatus.entries.filter { it != FullComboStatus.UNKNOWN }.forEach { status ->
+                        FilterChip(
+                            selected = fullCombo == status,
+                            onClick = { onFullComboChanged(status) },
+                            label = { Text(status.displayName) },
+                        )
+                    }
+                }
+            }
+            item {
+                FilterGroup(title = "SYNC / FS 状态") {
+                    FilterChip(
+                        selected = fullSync == null,
+                        onClick = { onFullSyncChanged(null) },
+                        label = { Text("全部 FS") },
+                    )
+                    FullSyncStatus.entries.filter { it != FullSyncStatus.UNKNOWN }.forEach { status ->
+                        FilterChip(
+                            selected = fullSync == status,
+                            onClick = { onFullSyncChanged(status) },
+                            label = { Text(status.displayName) },
+                        )
+                    }
+                }
+            }
+            item {
+                TextButton(modifier = Modifier.fillMaxWidth(), onClick = onDismiss) { Text("查看筛选结果") }
+            }
         }
-        ChipRow {
-            FilterChip(
-                selected = sortMode == ChartSort.ConstantDesc || sortMode == ChartSort.ConstantAsc,
-                onClick = {
-                    onSortModeChanged(if (sortMode == ChartSort.ConstantDesc) ChartSort.ConstantAsc else ChartSort.ConstantDesc)
-                },
-                label = { Text(if (sortMode == ChartSort.ConstantAsc) ChartSort.ConstantAsc.label else ChartSort.ConstantDesc.label) },
-            )
-            FilterChip(
-                selected = sortMode == ChartSort.VersionDesc || sortMode == ChartSort.VersionAsc,
-                onClick = {
-                    onSortModeChanged(if (sortMode == ChartSort.VersionDesc) ChartSort.VersionAsc else ChartSort.VersionDesc)
-                },
-                label = { Text(if (sortMode == ChartSort.VersionAsc) ChartSort.VersionAsc.label else ChartSort.VersionDesc.label) },
-            )
-            FilterChip(
-                selected = sortMode == ChartSort.AchievementAsc || sortMode == ChartSort.AchievementDesc,
-                onClick = {
-                    onSortModeChanged(if (sortMode == ChartSort.AchievementAsc) ChartSort.AchievementDesc else ChartSort.AchievementAsc)
-                },
-                label = { Text(if (sortMode == ChartSort.AchievementDesc) ChartSort.AchievementDesc.label else ChartSort.AchievementAsc.label) },
-            )
-            FilterChip(
-                selected = sortMode == ChartSort.TitleAsc || sortMode == ChartSort.TitleDesc,
-                onClick = {
-                    onSortModeChanged(if (sortMode == ChartSort.TitleAsc) ChartSort.TitleDesc else ChartSort.TitleAsc)
-                },
-                label = { Text(if (sortMode == ChartSort.TitleDesc) ChartSort.TitleDesc.label else ChartSort.TitleAsc.label) },
-            )
-        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilterGroup(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.labelLarge)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            content()
         }
     }
 }
@@ -602,13 +836,19 @@ private fun ConstantRangeFilter(
                 value = minimum,
                 label = "最低",
                 modifier = Modifier.weight(1f),
-                onValueChanged = { onRangeChanged(it, maximum) },
+                allowedRange = MIN_CHART_CONSTANT..MAX_CHART_CONSTANT,
+                onValueChanged = { value ->
+                    onRangeChanged(value, if (value != null && maximum != null && value > maximum) value else maximum)
+                },
             )
             DecimalFilterField(
                 value = maximum,
                 label = "最高",
                 modifier = Modifier.weight(1f),
-                onValueChanged = { onRangeChanged(minimum, it) },
+                allowedRange = MIN_CHART_CONSTANT..MAX_CHART_CONSTANT,
+                onValueChanged = { value ->
+                    onRangeChanged(if (value != null && minimum != null && value < minimum) value else minimum, value)
+                },
             )
         }
         RangeSlider(
@@ -635,13 +875,19 @@ private fun AchievementRangeFilter(
                 value = minimum,
                 label = "最低 %",
                 modifier = Modifier.weight(1f),
-                onValueChanged = { onRangeChanged(it, maximum) },
+                allowedRange = 0.0..101.0,
+                onValueChanged = { value ->
+                    onRangeChanged(value, if (value != null && maximum != null && value > maximum) value else maximum)
+                },
             )
             DecimalFilterField(
                 value = maximum,
                 label = "最高 %",
                 modifier = Modifier.weight(1f),
-                onValueChanged = { onRangeChanged(minimum, it) },
+                allowedRange = 0.0..101.0,
+                onValueChanged = { value ->
+                    onRangeChanged(if (value != null && minimum != null && value < minimum) value else minimum, value)
+                },
             )
         }
     }
@@ -652,6 +898,7 @@ private fun DecimalFilterField(
     value: Double?,
     label: String,
     modifier: Modifier = Modifier,
+    allowedRange: ClosedFloatingPointRange<Double>? = null,
     onValueChanged: (Double?) -> Unit,
 ) {
     var localText by remember { mutableStateOf(value?.let { String.format(Locale.US, "%.1f", it) }.orEmpty()) }
@@ -665,14 +912,31 @@ private fun DecimalFilterField(
         value = localText,
         onValueChange = { raw ->
             val normalized = raw.trim().replace(',', '.')
-            if (normalized.matches(Regex("\\d{0,3}(\\.\\d{0,4})?"))) {
+            if (normalized.matches(Regex("\\d{0,3}(\\.\\d?)?"))) {
                 localText = normalized
-                if (normalized.isEmpty()) onValueChanged(null) else normalized.toDoubleOrNull()?.let(onValueChanged)
+                if (normalized.isEmpty()) {
+                    onValueChanged(null)
+                } else {
+                    normalized.toDoubleOrNull()
+                        ?.takeIf { allowedRange == null || it in allowedRange }
+                        ?.let(onValueChanged)
+                }
             }
         },
         modifier = modifier,
         singleLine = true,
+        isError = localText.isNotBlank() && localText.toDoubleOrNull()?.let {
+            allowedRange != null && it !in allowedRange
+        } != false,
         label = { Text(label) },
+        supportingText = if (localText.isNotBlank() && localText.toDoubleOrNull()?.let {
+                allowedRange != null && it !in allowedRange
+            } != false
+        ) {
+            { Text("超出可用范围") }
+        } else {
+            null
+        },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
     )
 }
@@ -731,7 +995,7 @@ private fun ScoreCard(
     rank: Int,
     onChartSelected: (ChartIdentity) -> Unit,
 ) {
-    val difficultyColor = item.score.difficulty.color()
+    val difficultyColor = item.score.difficulty.accentColor()
     val openDetail = {
         item.chart?.let { onChartSelected(ChartIdentity.from(it)) }
         Unit
@@ -873,7 +1137,7 @@ private fun ChartCard(
                     )
                     DifficultyPill(
                         text = "${chart.difficulty.displayName()} ${chart.level}",
-                        color = chart.difficulty.color(),
+                        color = chart.difficulty.accentColor(),
                     )
                 }
             }
@@ -1150,25 +1414,6 @@ private fun EmptyState(text: String) {
     }
 }
 
-private enum class ScoreMode(val label: String) {
-    Best50("B50"),
-    All("全部成绩"),
-}
-
-private fun MaimaiRatedScore.matches(query: String): Boolean {
-    if (query.isBlank()) return true
-    val normalized = normalizeQuery(query)
-    return listOf(
-        score.title,
-        score.difficulty.displayName(),
-        score.level,
-        score.songType.displayName(),
-        chart?.artist.orEmpty(),
-        chart?.noteDesigner.orEmpty(),
-        chart?.chartVersionName.orEmpty(),
-    ).any { normalizeQuery(it).contains(normalized) }
-}
-
 private fun enrichScores(scores: List<ScoreRecord>, charts: List<ChartRecord>): List<MaimaiRatedScore> {
     val chartMap = matchChartsForScores(charts, scores)
     return scores.map { score ->
@@ -1185,14 +1430,11 @@ private fun ChartQueryFilters.activeAdvancedLabels(): List<String> = buildList {
     if (constantMin != null || constantMax != null) {
         add("定数 ${constantMin?.formatConst() ?: "--"}–${constantMax?.formatConst() ?: "--"}")
     }
-    difficulty?.let { add(it.displayName()) }
-    if (genre != ChartGenreFilter.All) add(genre.label)
-    if (version != ChartVersionFilter.All) add(version.label)
     songType?.let { add(it.displayName()) }
-    if (status != ChartStatusFilter.All) add(status.label)
     if (achievementMin != null || achievementMax != null) {
         add("达成率 ${achievementMin?.formatConst() ?: "--"}–${achievementMax?.formatConst() ?: "--"}%")
     }
+    rank?.let { add(it.displayName) }
     fullCombo?.let { add(it.displayName) }
     fullSync?.let { add(it.displayName) }
 }
@@ -1232,15 +1474,6 @@ private fun Difficulty.displayName(): String =
         Difficulty.RE_MASTER -> "Re:MASTER"
     }
 
-private fun Difficulty.color(): Color =
-    when (this) {
-        Difficulty.BASIC -> Color(0xFF2F9E44)
-        Difficulty.ADVANCED -> Color(0xFFD9480F)
-        Difficulty.EXPERT -> Color(0xFFE03131)
-        Difficulty.MASTER -> Color(0xFF8E44D6)
-        Difficulty.RE_MASTER -> Color(0xFFB15CFF)
-    }
-
 private fun SongType.displayName(): String =
     when (this) {
         SongType.STANDARD -> "SD"
@@ -1261,11 +1494,32 @@ private fun jacketUrl(songId: Int): String =
     "https://assets2.lxns.net/maimai/jacket/$songId.png"
 
 internal fun normalizeQuery(value: String): String =
+    normalizeSearchKey(value).let { normalized ->
+        if (normalized.any(Char::isHanCharacter)) {
+            SIMPLIFIED_QUERY_CACHE.computeIfAbsent(normalized, ChineseSearchNormalizer::toSimplified)
+        } else {
+            normalized
+        }
+    }
+
+internal fun normalizeSimplifiedSearchKey(value: String): String =
+    normalizeSearchKey(value).let { normalized ->
+        if (normalized.any(Char::isHanCharacter)) ChineseSearchNormalizer.toSimplified(normalized) else normalized
+    }
+
+internal fun normalizeSearchKey(value: String): String =
     Normalizer.normalize(value.trim(), Normalizer.Form.NFKC)
         .lowercase(Locale.ROOT)
         .replace(Regex("[\\s._·・:：!！?？'\"“”‘’()（）\\[\\]【】/\\\\-]+"), "")
 
+private fun Char.isHanCharacter(): Boolean =
+    code in 0x3400..0x4DBF || code in 0x4E00..0x9FFF || code in 0xF900..0xFAFF
+
+private val SIMPLIFIED_QUERY_CACHE = ConcurrentHashMap<String, String>()
+
 private const val MIN_CHART_CONSTANT = 1.0
 private const val MAX_CHART_CONSTANT = 15.0
+private const val HOME_OLD_BEST_HEADER_INDEX = 2
+private const val HOME_NEW_BEST_HEADER_BASE_INDEX = 3
 
 private fun Float.roundToTenth(): Double = (this * 10f).roundToInt() / 10.0

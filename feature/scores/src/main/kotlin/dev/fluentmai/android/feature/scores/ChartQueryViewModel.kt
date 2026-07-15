@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.fluentmai.android.core.model.AchievementRank
 import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.model.FullComboStatus
@@ -50,6 +51,7 @@ internal class ChartQueryViewModel(
     private var inputGeneration: Long = 0
     private var indexJob: Job? = null
     private var queryJob: Job? = null
+    private var filtersBeforePreset: ChartQueryFilters? = null
 
     fun submitCatalog(
         charts: List<ChartRecord>,
@@ -58,10 +60,10 @@ internal class ChartQueryViewModel(
         aliases: SongAliasCatalog = SongAliasCatalog.Empty,
     ) {
         if (
-            charts === indexedCharts &&
-            scores === indexedScores &&
+            charts == indexedCharts &&
+            scores == indexedScores &&
             currentVersion == indexedCurrentVersion &&
-            aliases === indexedAliases
+            aliases.entries == indexedAliases?.entries
         ) return
         indexedCharts = charts
         indexedScores = scores
@@ -72,6 +74,19 @@ internal class ChartQueryViewModel(
         queryJob?.cancel()
         indexJob = viewModelScope.launch {
             _uiState.update { it.copy(isIndexing = true, isFiltering = false) }
+            delay(INDEX_INPUT_DEBOUNCE_MILLIS)
+            if (generation != inputGeneration) return@launch
+            if (charts.isEmpty()) {
+                engine = null
+                _uiState.update {
+                    it.copy(
+                        result = ChartQueryResult(),
+                        isIndexing = false,
+                        isFiltering = false,
+                    )
+                }
+                return@launch
+            }
             val startedAt = SystemClock.elapsedRealtime()
             val built = withContext(Dispatchers.Default) {
                 ChartQueryEngine.create(charts, scores, aliases)
@@ -81,7 +96,8 @@ internal class ChartQueryViewModel(
             Log.i(
                 TAG,
                 "Chart index ready in ${SystemClock.elapsedRealtime() - startedAt}ms: " +
-                    "chartCount=${charts.size} scoreCount=${scores.size}",
+                    "chartCount=${charts.size} scoreCount=${scores.size} " +
+                    "stages=${built.buildTimings}",
             )
             _uiState.update { it.copy(isIndexing = false) }
             scheduleQuery(debounceMillis = 0L)
@@ -92,12 +108,27 @@ internal class ChartQueryViewModel(
         updateFilters(debounceMillis = SEARCH_DEBOUNCE_MILLIS) { it.copy(searchQuery = value) }
 
     fun updateLevelQuery(value: String) =
-        updateFilters(debounceMillis = SEARCH_DEBOUNCE_MILLIS) { it.copy(levelQuery = value) }
-
-    fun updateConstantRange(minimum: Double?, maximum: Double?) =
         updateFilters(debounceMillis = SEARCH_DEBOUNCE_MILLIS) {
-            it.copy(constantMin = minimum, constantMax = maximum)
+            val useExactLevel = value.isNotBlank() && isValidLevelQuery(value)
+            it.copy(
+                levelQuery = value,
+                constantMin = if (useExactLevel) null else it.constantMin,
+                constantMax = if (useExactLevel) null else it.constantMax,
+            )
         }
+
+    fun updateConstantRange(minimum: Double?, maximum: Double?) {
+        if (minimum != null && (!minimum.isFinite() || minimum !in 1.0..15.0)) return
+        if (maximum != null && (!maximum.isFinite() || maximum !in 1.0..15.0)) return
+        if (minimum != null && maximum != null && minimum > maximum) return
+        updateFilters(debounceMillis = SEARCH_DEBOUNCE_MILLIS) {
+            it.copy(
+                levelQuery = if (minimum != null || maximum != null) "" else it.levelQuery,
+                constantMin = minimum,
+                constantMax = maximum,
+            )
+        }
+    }
 
     fun updateDifficulty(value: Difficulty?) =
         updateFilters { it.copy(difficulty = value) }
@@ -114,10 +145,17 @@ internal class ChartQueryViewModel(
     fun updateSongType(value: SongType?) =
         updateFilters { it.copy(songType = value) }
 
-    fun updateAchievementRange(minimum: Double?, maximum: Double?) =
+    fun updateAchievementRange(minimum: Double?, maximum: Double?) {
+        if (minimum != null && (!minimum.isFinite() || minimum !in 0.0..101.0)) return
+        if (maximum != null && (!maximum.isFinite() || maximum !in 0.0..101.0)) return
+        if (minimum != null && maximum != null && minimum > maximum) return
         updateFilters(debounceMillis = SEARCH_DEBOUNCE_MILLIS) {
             it.copy(achievementMin = minimum, achievementMax = maximum)
         }
+    }
+
+    fun updateRank(value: AchievementRank?) =
+        updateFilters { it.copy(rank = value) }
 
     fun updateFullCombo(value: FullComboStatus?) =
         updateFilters { it.copy(fullCombo = value) }
@@ -128,7 +166,22 @@ internal class ChartQueryViewModel(
     fun updateSort(value: ChartSort) =
         updateFilters { it.copy(sort = value) }
 
-    fun resetFilters() = updateFilters { ChartQueryFilters() }
+    fun resetFilters() {
+        filtersBeforePreset = null
+        replaceFilters(ChartQueryFilters())
+    }
+
+    fun enterPlayedPreset() {
+        if (filtersBeforePreset != null) return
+        filtersBeforePreset = _uiState.value.filters
+        replaceFilters(ChartQueryFilters(status = ChartStatusFilter.Played))
+    }
+
+    fun exitPreset() {
+        val restored = filtersBeforePreset ?: return
+        filtersBeforePreset = null
+        replaceFilters(restored)
+    }
 
     fun saveScroll(index: Int, offset: Int) {
         savedStateHandle[KEY_SCROLL_INDEX] = index.coerceAtLeast(0)
@@ -141,6 +194,11 @@ internal class ChartQueryViewModel(
     ) {
         val filters = transform(_uiState.value.filters)
         if (filters == _uiState.value.filters) return
+        replaceFilters(filters, debounceMillis)
+    }
+
+    private fun replaceFilters(filters: ChartQueryFilters, debounceMillis: Long = 0L) {
+        if (filters == _uiState.value.filters) return
         persistFilters(filters)
         _uiState.update { it.copy(filters = filters) }
         scheduleQuery(debounceMillis)
@@ -149,6 +207,11 @@ internal class ChartQueryViewModel(
     private fun scheduleQuery(debounceMillis: Long) {
         val queryEngine = engine ?: return
         val filters = _uiState.value.filters
+        if (!isValidLevelQuery(filters.levelQuery)) {
+            queryJob?.cancel()
+            _uiState.update { it.copy(isFiltering = false) }
+            return
+        }
         val currentVersion = indexedCurrentVersion
         queryJob?.cancel()
         _uiState.update { it.copy(isFiltering = true) }
@@ -180,6 +243,7 @@ internal class ChartQueryViewModel(
         savedStateHandle[KEY_SONG_TYPE] = filters.songType?.name
         savedStateHandle[KEY_ACHIEVEMENT_MIN] = filters.achievementMin
         savedStateHandle[KEY_ACHIEVEMENT_MAX] = filters.achievementMax
+        savedStateHandle[KEY_RANK] = filters.rank?.name
         savedStateHandle[KEY_FULL_COMBO] = filters.fullCombo?.name
         savedStateHandle[KEY_FULL_SYNC] = filters.fullSync?.name
         savedStateHandle[KEY_SORT] = filters.sort.name
@@ -187,6 +251,7 @@ internal class ChartQueryViewModel(
 
     private companion object {
         private const val TAG = "FluentMaiCharts"
+        private const val INDEX_INPUT_DEBOUNCE_MILLIS = 80L
         private const val SEARCH_DEBOUNCE_MILLIS = 180L
         private const val KEY_SEARCH = "charts.search"
         private const val KEY_LEVEL = "charts.level"
@@ -199,6 +264,7 @@ internal class ChartQueryViewModel(
         private const val KEY_SONG_TYPE = "charts.song.type"
         private const val KEY_ACHIEVEMENT_MIN = "charts.achievement.min"
         private const val KEY_ACHIEVEMENT_MAX = "charts.achievement.max"
+        private const val KEY_RANK = "charts.rank"
         private const val KEY_FULL_COMBO = "charts.full.combo"
         private const val KEY_FULL_SYNC = "charts.full.sync"
         private const val KEY_SORT = "charts.sort"
@@ -218,6 +284,7 @@ internal class ChartQueryViewModel(
                 songType = enumValueOrNull<SongType>(handle[KEY_SONG_TYPE]),
                 achievementMin = handle[KEY_ACHIEVEMENT_MIN],
                 achievementMax = handle[KEY_ACHIEVEMENT_MAX],
+                rank = enumValueOrNull<AchievementRank>(handle[KEY_RANK]),
                 fullCombo = enumValueOrNull<FullComboStatus>(handle[KEY_FULL_COMBO]),
                 fullSync = enumValueOrNull<FullSyncStatus>(handle[KEY_FULL_SYNC]),
                 sort = enumValueOrDefault(handle[KEY_SORT], ChartSort.ConstantDesc),

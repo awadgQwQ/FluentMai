@@ -12,12 +12,11 @@ import org.junit.Test
 
 class PlayerRecordsViewModelTest {
     @Test
-    fun recommendationSectionFiltersAndExclusionsRestoreFromSavedState() {
+    fun recommendationFiltersAndExclusionsRestoreFromSavedState() {
         val handle = SavedStateHandle()
         val identity = ChartIdentity(834, SongType.DX, Difficulty.MASTER)
         val original = PlayerRecordsViewModel(handle)
 
-        original.updateSection(PlayerRecordsSection.RECOMMENDATIONS)
         original.updateRecommendationTargetTotal("14700")
         original.updateRecommendationTargetAchievement("100.5")
         original.updateRecommendationConstantMin("13.2")
@@ -28,7 +27,6 @@ class PlayerRecordsViewModelTest {
         original.excludeRecommendation(identity)
 
         val restored = PlayerRecordsViewModel(handle).uiState.value
-        assertEquals(PlayerRecordsSection.RECOMMENDATIONS, restored.section)
         assertEquals("14700", restored.recommendationTargetTotalText)
         assertEquals("100.5", restored.recommendationTargetAchievementText)
         assertEquals("13.2", restored.recommendationConstantMinText)

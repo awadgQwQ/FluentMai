@@ -201,8 +201,8 @@ private fun DetailHeader(chart: ChartRecord, onBack: () -> Unit) {
                 )
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = chart.difficulty.detailColor().copy(alpha = 0.14f),
-                    contentColor = chart.difficulty.detailColor(),
+                    color = chart.difficulty.accentColor().copy(alpha = 0.14f),
+                    contentColor = chart.difficulty.accentColor(),
                 ) {
                     Text(
                         "${chart.level}  ${chart.levelValue?.let { String.format(Locale.US, "%.1f", it) } ?: "定数未知"}",
@@ -309,15 +309,6 @@ private fun Difficulty.detailName(): String =
         Difficulty.EXPERT -> "Expert"
         Difficulty.MASTER -> "Master"
         Difficulty.RE_MASTER -> "Re:MASTER"
-    }
-
-private fun Difficulty.detailColor(): Color =
-    when (this) {
-        Difficulty.BASIC -> Color(0xFF2F9E44)
-        Difficulty.ADVANCED -> Color(0xFFD9480F)
-        Difficulty.EXPERT -> Color(0xFFE03131)
-        Difficulty.MASTER -> Color(0xFF8E44D6)
-        Difficulty.RE_MASTER -> Color(0xFFB15CFF)
     }
 
 private fun ChartAvailability.displayName(): String =

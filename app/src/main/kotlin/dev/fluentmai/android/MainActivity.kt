@@ -18,7 +18,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
@@ -67,9 +66,11 @@ import dev.fluentmai.android.core.upload.MaimaiUploadProgress
 import dev.fluentmai.android.core.upload.MaimaiUploadResult
 import dev.fluentmai.android.feature.importflow.ImportScreen
 import dev.fluentmai.android.feature.scores.ChartQueryScreen
+import dev.fluentmai.android.feature.scores.ChartQueryPrewarmer
 import dev.fluentmai.android.feature.scores.ChartDetailScreen
 import dev.fluentmai.android.feature.scores.AliasDataStatus
-import dev.fluentmai.android.feature.scores.PlayerRecordsScreen
+import dev.fluentmai.android.feature.scores.PlayerProgressDestination
+import dev.fluentmai.android.feature.scores.PlayerProgressScreen
 import dev.fluentmai.android.feature.scores.ScoresScreen
 import dev.fluentmai.android.feature.settings.SettingsScreen
 import dev.fluentmai.android.feature.tools.ToolboxScreen
@@ -264,6 +265,8 @@ private fun FluentMaiApp(
     val isHookRunning by WahlapHookBridge.vpnRunning.collectAsState()
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     var selectedChartKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var playerProgressDestination by rememberSaveable { mutableStateOf<PlayerProgressDestination?>(null) }
+    var playedPresetActive by rememberSaveable { mutableStateOf(false) }
     var scoreCount by remember { mutableStateOf(0) }
     var scores by remember { mutableStateOf<List<ScoreRecord>>(emptyList()) }
     var chartRecords by remember { mutableStateOf<List<ChartRecord>>(emptyList()) }
@@ -728,16 +731,30 @@ private fun FluentMaiApp(
         selectedChartKey = null
     }
     BackHandler(
+        enabled = selectedChartIdentity == null && selectedTab == AppTab.Home && playerProgressDestination != null,
+    ) {
+        playerProgressDestination = null
+    }
+    BackHandler(
         enabled = selectedChartIdentity == null && selectedTab == AppTab.Tools && isSettingsOpen,
     ) {
         isSettingsOpen = false
     }
 
     val onTabSelected: (AppTab) -> Unit = { tab ->
+        if (tab != AppTab.Charts) playedPresetActive = false
         selectedTab = tab
         selectedChartKey = null
+        playerProgressDestination = null
         if (tab == AppTab.Tools) isSettingsOpen = false
     }
+    ChartQueryPrewarmer(
+        charts = chartRecords,
+        scores = scores,
+        majorVersions = chartMajorVersions,
+        aliases = songAliases,
+        playedPresetActive = playedPresetActive,
+    )
     AdaptiveNavigationScaffold(
         selectedTab = selectedTab,
         onTabSelected = onTabSelected,
@@ -767,11 +784,32 @@ private fun FluentMaiApp(
                         onChartSelected = { selectedChartKey = it.stableKey() },
                         modifier = modifier,
                     )
+                } else if (selectedTab == AppTab.Home && playerProgressDestination != null) {
+                    PlayerProgressScreen(
+                        destination = requireNotNull(playerProgressDestination),
+                        scores = scores,
+                        charts = chartRecords,
+                        majorVersions = chartMajorVersions,
+                        onDestinationChanged = { playerProgressDestination = it },
+                        onBack = { playerProgressDestination = null },
+                        onChartSelected = { selectedChartKey = it.stableKey() },
+                        modifier = modifier,
+                    )
                 } else when (selectedTab) {
                     AppTab.Home -> ScoresScreen(
                         scores = scores,
                         charts = chartRecords,
                         majorVersions = chartMajorVersions,
+                        onOpenPlayedCharts = {
+                            playedPresetActive = true
+                            selectedTab = AppTab.Charts
+                        },
+                        onOpenPlates = {
+                            playerProgressDestination = PlayerProgressDestination.PLATES
+                        },
+                        onOpenRecommendations = {
+                            playerProgressDestination = PlayerProgressDestination.RECOMMENDATIONS
+                        },
                         onChartSelected = { selectedChartKey = it.stableKey() },
                         modifier = modifier,
                     )
@@ -815,15 +853,8 @@ private fun FluentMaiApp(
                         aliases = songAliases,
                         isLoading = isChartCatalogLoading,
                         onRefresh = ::refreshChartRecords,
-                        onChartSelected = { selectedChartKey = it.stableKey() },
-                        modifier = modifier,
-                    )
-
-                    AppTab.Records -> PlayerRecordsScreen(
-                        scores = scores,
-                        charts = chartRecords,
-                        majorVersions = chartMajorVersions,
-                        aliases = songAliases,
+                        playedPresetActive = playedPresetActive,
+                        onDismissPlayedPreset = { playedPresetActive = false },
                         onChartSelected = { selectedChartKey = it.stableKey() },
                         modifier = modifier,
                     )
@@ -838,6 +869,7 @@ private fun FluentMaiApp(
                         )
                     } else {
                         ToolboxScreen(
+                            charts = chartRecords,
                             majorVersions = chartMajorVersions,
                             ratingHistory = ratingHistory,
                             onAddManualRating = { recordedAt, rating, note ->
@@ -945,7 +977,6 @@ internal enum class AppTab(
     val icon: ImageVector,
 ) {
     Home("首页", Icons.Filled.Home),
-    Records("记录", Icons.Filled.Assessment),
     Import("导入", Icons.Filled.PlayArrow),
     Charts("谱面", Icons.Filled.Search),
     Tools("工具", Icons.Filled.Build),

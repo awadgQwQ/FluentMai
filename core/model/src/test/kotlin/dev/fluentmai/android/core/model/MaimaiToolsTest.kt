@@ -78,5 +78,22 @@ class MaimaiToolsTest {
         assertEquals("MURASAKi PLUS", maimaiVersionNameFor(18500))
         assertEquals("舞萌DX 2025", maimaiVersionNameFor(25007))
         assertEquals(MaimaiGeneration.DELUXE, maimaiVersionReferenceFor(25501)?.generation)
+        assertEquals(listOf("雪"), maimaiPlateVersionFor(19500)?.prefixes)
+        assertEquals(listOf("輝"), maimaiPlateVersionFor(19900)?.prefixes)
+        assertEquals(20000, maimaiPlateVersionFor(19900)?.chartVersionEndExclusive)
+    }
+
+    @Test
+    fun catalogNamesDoNotDiscardCanonicalPlateSemantics() {
+        val references = buildMaimaiVersionReferences(
+            listOf(
+                MaimaiMajorVersion(19900, "FiNALE"),
+                MaimaiMajorVersion(25500, "舞萌DX 2026"),
+            ),
+        )
+
+        assertEquals("輝", references.single { it.versionId == 19900 }.plate?.prefixes?.single())
+        assertEquals("当前曲库批次", references.single { it.versionId == 25500 }.relatedNames.single())
+        assertEquals("MiLK PLUS", references.single { it.versionId == 19500 }.officialName)
     }
 }

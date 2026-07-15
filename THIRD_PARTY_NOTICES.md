@@ -30,7 +30,10 @@ Used for unit tests. JUnit 4 is licensed under the Eclipse Public License 1.0.
 
 Used by the fixture parser in JVM tests and importer code. JSON-java is distributed under its project license.
 
+## opencc4j
+
+Version 1.14.0 supplies the offline Traditional/Simplified Chinese character and phrase dictionaries used by chart search. opencc4j is licensed under the Apache License 2.0.
+
 ## MaiproberPlus / MPP-Lab
 
 MaiproberPlus was inspected only as a read-only technical validation reference for this phase. No large MaiproberPlus modules were copied into FluentMai Android Phase 0.
-

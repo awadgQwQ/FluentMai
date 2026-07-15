@@ -233,90 +233,7 @@ fun PlayerRecordCatalog.stats(records: List<PlayerChartRecord> = this.records): 
         fullSyncCounts = records.mapNotNull { it.fullSyncStatus }.groupingBy { it }.eachCount(),
     )
 
-enum class PlayedFilter { ALL, PLAYED, UNPLAYED }
-
 enum class VersionAgeFilter { ALL, CURRENT, OLD }
-
-enum class PlayerRecordSort {
-    RATING_DESC,
-    ACHIEVEMENT_DESC,
-    CONSTANT_DESC,
-    CONSTANT_ASC,
-    LEVEL_DESC,
-    TITLE_ASC,
-    VERSION_DESC,
-    SONG_ID_ASC,
-}
-
-data class PlayerRecordFilters(
-    val query: String = "",
-    val versionId: Int? = null,
-    val constantMin: Double? = null,
-    val constantMax: Double? = null,
-    val displayLevel: String = "",
-    val difficulty: Difficulty? = null,
-    val genre: String? = null,
-    val songType: SongType? = null,
-    val rank: AchievementRank? = null,
-    val fullCombo: FullComboStatus? = null,
-    val fullSync: FullSyncStatus? = null,
-    val plateBlockerFor: PlateKind? = null,
-    val played: PlayedFilter = PlayedFilter.ALL,
-    val versionAge: VersionAgeFilter = VersionAgeFilter.ALL,
-    val sort: PlayerRecordSort = PlayerRecordSort.RATING_DESC,
-)
-
-fun filterPlayerRecords(
-    records: List<PlayerChartRecord>,
-    filters: PlayerRecordFilters,
-    currentVersionId: Int?,
-    aliases: SongAliasCatalog = SongAliasCatalog.Empty,
-): List<PlayerChartRecord> {
-    val query = normalizePlayerRecordText(filters.query)
-    val displayLevel = normalizePlayerRecordText(filters.displayLevel)
-    return records.asSequence()
-        .filter { record ->
-            query.isBlank() || listOf(
-                record.chart.title,
-                record.chart.artist,
-                record.chart.noteDesigner,
-                record.chart.genre,
-                record.chart.songId.toString(),
-                "${record.chart.songId}-${record.chart.songType.name}-${record.chart.difficulty.name}",
-                *aliases.aliasesFor(record.chart.songId).toTypedArray(),
-            ).any { normalizePlayerRecordText(it).contains(query) }
-        }
-        .filter { filters.versionId == null || it.chart.chartVersion == filters.versionId }
-        .filter { filters.constantMin == null || (it.chart.levelValue ?: Double.NEGATIVE_INFINITY) >= filters.constantMin }
-        .filter { filters.constantMax == null || (it.chart.levelValue ?: Double.POSITIVE_INFINITY) <= filters.constantMax }
-        .filter { displayLevel.isBlank() || normalizePlayerRecordText(it.chart.level) == displayLevel }
-        .filter { filters.difficulty == null || it.chart.difficulty == filters.difficulty }
-        .filter { filters.genre == null || it.chart.genre == filters.genre }
-        .filter { filters.songType == null || it.chart.songType == filters.songType }
-        .filter { filters.rank == null || it.rank == filters.rank }
-        .filter { filters.fullCombo == null || it.fullComboStatus == filters.fullCombo }
-        .filter { filters.fullSync == null || it.fullSyncStatus == filters.fullSync }
-        .filter {
-            filters.plateBlockerFor == null ||
-                (it.isEligibleForPlate(filters.plateBlockerFor) && !it.meetsPlateRequirement(filters.plateBlockerFor))
-        }
-        .filter {
-            when (filters.played) {
-                PlayedFilter.ALL -> true
-                PlayedFilter.PLAYED -> it.score != null
-                PlayedFilter.UNPLAYED -> it.score == null
-            }
-        }
-        .filter {
-            when (filters.versionAge) {
-                VersionAgeFilter.ALL -> true
-                VersionAgeFilter.CURRENT -> currentVersionId != null && it.chart.chartVersion == currentVersionId
-                VersionAgeFilter.OLD -> currentVersionId != null && it.chart.chartVersion < currentVersionId
-            }
-        }
-        .sortedWith(filters.sort.comparator())
-        .toList()
-}
 
 enum class PlateKind(val displayName: String) {
     GENERAL("将"),
@@ -342,6 +259,7 @@ data class PlateProgress(
     val eligibleRecords: List<PlayerChartRecord>,
     val dataSufficient: Boolean,
     val dataMessage: String? = null,
+    val plateName: String = if (kind == PlateKind.CONQUEROR) "覇者" else "$versionName${kind.displayName}",
 ) {
     val remainingCount: Int = (requiredCount - completedCount).coerceAtLeast(0)
     val completionFraction: Double = if (requiredCount == 0) 0.0 else completedCount.toDouble() / requiredCount
@@ -362,10 +280,37 @@ fun calculatePlateProgress(
     if (kind != PlateKind.CONQUEROR && versionId == null) {
         return PlateProgress(kind, null, versionName.orEmpty(), 0, 0, emptyList(), emptyList(), false, "缺少版本信息")
     }
+    val plateVersion = versionId?.let(::maimaiPlateVersionFor)
+    if (kind != PlateKind.CONQUEROR && plateVersion == null) {
+        return PlateProgress(
+            kind,
+            versionId,
+            versionName.orEmpty(),
+            0,
+            0,
+            emptyList(),
+            emptyList(),
+            false,
+            "该曲库版本还没有可核验的版本牌要求",
+        )
+    }
+    if (kind != PlateKind.CONQUEROR && plateVersion?.supports(kind) != true) {
+        return PlateProgress(
+            kind,
+            versionId,
+            versionName.orEmpty(),
+            0,
+            0,
+            emptyList(),
+            emptyList(),
+            false,
+            "该版本没有${kind.displayName}牌要求",
+        )
+    }
     val eligible = records.filter { record ->
         when (kind) {
             PlateKind.CONQUEROR -> record.chart.songType == SongType.STANDARD
-            else -> record.chart.chartVersion == versionId && record.chart.difficulty != Difficulty.RE_MASTER
+            else -> plateVersion?.contains(record.chart) == true && record.chart.difficulty != Difficulty.RE_MASTER
         }
     }
     if (eligible.isEmpty()) {
@@ -391,6 +336,11 @@ fun calculatePlateProgress(
         blockers = blockers,
         eligibleRecords = eligible,
         dataSufficient = true,
+        plateName = if (kind == PlateKind.CONQUEROR) {
+            "覇者"
+        } else {
+            checkNotNull(plateVersion).displayTitle(kind)
+        },
     )
 }
 
@@ -472,20 +422,3 @@ private fun <K> List<Pair<K, ScoreRecord>>.bestScorePairs(): Map<K, ScoreRecord>
 
 private fun List<ScoreRecord>.bestScore(): ScoreRecord =
     maxWithOrNull(compareBy<ScoreRecord> { it.achievement }.thenBy { it.dxScore ?: -1 }) ?: first()
-
-private fun PlayerRecordSort.comparator(): Comparator<PlayerChartRecord> {
-    val primary = when (this) {
-        PlayerRecordSort.RATING_DESC -> compareByDescending<PlayerChartRecord> { it.rating ?: -1 }
-        PlayerRecordSort.ACHIEVEMENT_DESC -> compareByDescending { it.score?.achievement ?: -1.0 }
-        PlayerRecordSort.CONSTANT_DESC -> compareByDescending { it.chart.levelValue ?: -1.0 }
-        PlayerRecordSort.CONSTANT_ASC -> compareBy { it.chart.levelValue ?: Double.POSITIVE_INFINITY }
-        PlayerRecordSort.LEVEL_DESC -> compareByDescending { it.chart.levelValue ?: -1.0 }
-        PlayerRecordSort.TITLE_ASC -> compareBy { normalizePlayerRecordText(it.chart.title) }
-        PlayerRecordSort.VERSION_DESC -> compareByDescending { it.chart.chartVersion }
-        PlayerRecordSort.SONG_ID_ASC -> compareBy { it.chart.songId }
-    }
-    return primary
-        .thenBy { it.identity.songId }
-        .thenBy { it.identity.songType.ordinal }
-        .thenBy { it.identity.difficulty.levelIndex }
-}

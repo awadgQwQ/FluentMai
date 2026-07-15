@@ -1,15 +1,19 @@
 package dev.fluentmai.android.feature.tools
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,7 +34,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -51,6 +58,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.fluentmai.android.core.model.KaleidScopeCatalog
+import dev.fluentmai.android.core.model.ChartRecord
 import dev.fluentmai.android.core.model.MaimaiAchievementCalculation
 import dev.fluentmai.android.core.model.MaimaiJudgement
 import dev.fluentmai.android.core.model.MaimaiMajorVersion
@@ -68,10 +76,13 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.text.Normalizer
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ToolboxScreen(
+    charts: List<ChartRecord>,
     majorVersions: List<MaimaiMajorVersion>,
     ratingHistory: List<RatingHistoryEntry>,
     onAddManualRating: (Long, Int, String?) -> Unit,
@@ -112,8 +123,11 @@ fun ToolboxScreen(
             }
         }
         item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(ToolSection.entries, key = ToolSection::name) { item ->
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                ToolSection.entries.forEach { item ->
                     FilterChip(
                         selected = section == item,
                         onClick = { sectionName = item.name },
@@ -125,7 +139,7 @@ fun ToolboxScreen(
             item {
                 when (section) {
                 ToolSection.RATING -> RatingCalculator()
-                ToolSection.ACHIEVEMENT -> AchievementCalculator()
+                ToolSection.ACHIEVEMENT -> AchievementCalculator(charts)
                 ToolSection.VERSIONS -> VersionReference(majorVersions)
                 ToolSection.KALEID -> KaleidScopeStatus(kaleidScopeRepository.currentCatalog())
                 ToolSection.TREND -> RatingTrend(
@@ -193,8 +207,24 @@ private fun RatingCalculator() {
     }
 }
 
+private enum class NoteInputMode(val label: String) {
+    CHART("选择谱面"),
+    MANUAL("手动输入"),
+}
+
+private data class SelectableChartNotes(
+    val chart: ChartRecord,
+    val counts: MaimaiNoteCounts,
+    val key: String,
+    val normalizedSearchText: String,
+)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AchievementCalculator() {
+private fun AchievementCalculator(charts: List<ChartRecord>) {
+    var inputModeName by rememberSaveable { mutableStateOf(NoteInputMode.CHART.name) }
+    var selectedChartKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var showChartPicker by remember { mutableStateOf(false) }
     var tap by rememberSaveable { mutableStateOf("") }
     var hold by rememberSaveable { mutableStateOf("") }
     var slide by rememberSaveable { mutableStateOf("") }
@@ -211,20 +241,55 @@ private fun AchievementCalculator() {
     val judgement = MaimaiJudgement.entries.firstOrNull { it.name == judgementName }
         ?.takeIf { it in judgements }
         ?: MaimaiJudgement.GREAT
+    val inputMode = NoteInputMode.entries.firstOrNull { it.name == inputModeName } ?: NoteInputMode.CHART
+    val selectableCharts = remember(charts) {
+        charts.asSequence()
+            .mapNotNull { chart -> chart.selectableNotes() }
+            .distinctBy { it.key }
+            .sortedWith(
+                compareByDescending<SelectableChartNotes> { it.chart.levelValue ?: -1.0 }
+                    .thenBy { it.chart.title }
+                    .thenBy { it.chart.songId },
+            )
+            .toList()
+    }
+    val selectedChart = remember(selectableCharts, selectedChartKey) {
+        selectableCharts.firstOrNull { it.key == selectedChartKey }
+    }
 
-    ToolCard("谱面失分与达成率", "输入谱面物量，查看单个判定失分、指定数量后的达成率与目标容错。") {
+    ToolCard("谱面失分与达成率", "默认选择谱面并自动读取物量；也可切换为手动输入。") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IntegerField(tap, { tap = it }, "Tap", Modifier.weight(1f))
-            IntegerField(hold, { hold = it }, "Hold", Modifier.weight(1f))
-            IntegerField(slide, { slide = it }, "Slide", Modifier.weight(1f))
+            NoteInputMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = inputMode == mode,
+                    onClick = { inputModeName = mode.name },
+                    label = { Text(mode.label) },
+                )
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IntegerField(touch, { touch = it }, "Touch", Modifier.weight(1f))
-            IntegerField(breakCount, { breakCount = it }, "Break", Modifier.weight(1f))
+        if (inputMode == NoteInputMode.CHART) {
+            ChartNotesSelector(
+                selected = selectedChart,
+                availableCount = selectableCharts.size,
+                onClick = { showChartPicker = true },
+            )
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IntegerField(tap, { tap = it }, "Tap", Modifier.weight(1f))
+                IntegerField(hold, { hold = it }, "Hold", Modifier.weight(1f))
+                IntegerField(slide, { slide = it }, "Slide", Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IntegerField(touch, { touch = it }, "Touch", Modifier.weight(1f))
+                IntegerField(breakCount, { breakCount = it }, "Break", Modifier.weight(1f))
+            }
         }
         Text("判定对象", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(MaimaiNoteKind.entries, key = MaimaiNoteKind::name) { item ->
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            MaimaiNoteKind.entries.forEach { item ->
                 FilterChip(
                     selected = kind == item,
                     onClick = {
@@ -237,8 +302,11 @@ private fun AchievementCalculator() {
                 )
             }
         }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(judgements, key = MaimaiJudgement::name) { item ->
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            judgements.forEach { item ->
                 FilterChip(
                     selected = judgement == item,
                     onClick = { judgementName = item.name },
@@ -254,13 +322,17 @@ private fun AchievementCalculator() {
             onClick = {
                 result = null
                 error = runCatching {
-                    val notes = MaimaiNoteCounts(
-                        tap = tap.toIntOrNull() ?: kotlin.error("请填写 Tap 物量"),
-                        hold = hold.toIntOrNull() ?: kotlin.error("请填写 Hold 物量"),
-                        slide = slide.toIntOrNull() ?: kotlin.error("请填写 Slide 物量"),
-                        touch = touch.toIntOrNull() ?: kotlin.error("请填写 Touch 物量"),
-                        breakCount = breakCount.toIntOrNull() ?: kotlin.error("请填写 Break 物量"),
-                    )
+                    val notes = if (inputMode == NoteInputMode.CHART) {
+                        selectedChart?.counts ?: kotlin.error("请先选择一张有完整物量的谱面")
+                    } else {
+                        MaimaiNoteCounts(
+                            tap = tap.toIntOrNull() ?: kotlin.error("请填写 Tap 物量"),
+                            hold = hold.toIntOrNull() ?: kotlin.error("请填写 Hold 物量"),
+                            slide = slide.toIntOrNull() ?: kotlin.error("请填写 Slide 物量"),
+                            touch = touch.toIntOrNull() ?: kotlin.error("请填写 Touch 物量"),
+                            breakCount = breakCount.toIntOrNull() ?: kotlin.error("请填写 Break 物量"),
+                        )
+                    }
                     result = calculateMaimaiAchievement(
                         notes = notes,
                         noteKind = kind,
@@ -292,29 +364,212 @@ private fun AchievementCalculator() {
                 "BREAK 额外段按 Critical Perfect=1、2550 Perfect=0.75、2500 Perfect=0.5、Great=0.4、Good=0.3。",
         )
     }
+    if (showChartPicker) {
+        ChartNotesPicker(
+            charts = selectableCharts,
+            onDismiss = { showChartPicker = false },
+            onSelected = { selected ->
+                selectedChartKey = selected.key
+                showChartPicker = false
+                result = null
+                error = null
+            },
+        )
+    }
 }
+
+@Composable
+private fun ChartNotesSelector(
+    selected: SelectableChartNotes?,
+    availableCount: Int,
+    onClick: () -> Unit,
+) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (selected == null) {
+                Text("选择谱面", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "$availableCount 张谱面有完整物量；选择后自动填入 Note 数。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                val chart = selected.chart
+                Text(chart.displayToolTitle(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "${chart.difficulty.displayToolName()} ${chart.level} · ${chart.songType.name} · ID ${chart.songId}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "总 Note ${chart.notes?.total ?: selected.counts.rawTotal} · " +
+                        "Tap ${selected.counts.tap} · Hold ${selected.counts.hold} · " +
+                        "Slide ${selected.counts.slide} · Touch ${selected.counts.touch} · Break ${selected.counts.breakCount}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text("点击更换谱面", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChartNotesPicker(
+    charts: List<SelectableChartNotes>,
+    onDismiss: () -> Unit,
+    onSelected: (SelectableChartNotes) -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val normalizedQuery = remember(query) { normalizeToolSearch(query) }
+    val matches = remember(charts, normalizedQuery) {
+        charts.asSequence()
+            .filter { normalizedQuery.isBlank() || normalizedQuery in it.normalizedSearchText }
+            .take(MAX_NOTE_PICKER_RESULTS + 1)
+            .toList()
+    }
+    val hasMore = matches.size > MAX_NOTE_PICKER_RESULTS
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("选择谱面并自动读取物量", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("曲名 / 曲师 / ID / 等级") },
+                singleLine = true,
+            )
+            if (matches.isEmpty()) {
+                Text("没有找到有完整物量的谱面", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
+                    items(matches.take(MAX_NOTE_PICKER_RESULTS), key = SelectableChartNotes::key) { item ->
+                        ListItem(
+                            headlineContent = {
+                                Text(item.chart.displayToolTitle(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            },
+                            supportingContent = {
+                                Text(
+                                    "${item.chart.difficulty.displayToolName()} ${item.chart.level} · " +
+                                        "${item.chart.songType.name} · ID ${item.chart.songId}",
+                                )
+                            },
+                            trailingContent = { Text("${item.chart.notes?.total ?: item.counts.rawTotal} Note") },
+                            modifier = Modifier.clickable { onSelected(item) },
+                        )
+                        HorizontalDivider()
+                    }
+                    if (hasMore) {
+                        item {
+                            Text(
+                                "结果较多，请继续输入以缩小范围",
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun ChartRecord.selectableNotes(): SelectableChartNotes? {
+    val counts = toMaimaiNoteCountsOrNull() ?: return null
+    val key = "$songId:${songType.name}:${difficulty.name}"
+    return SelectableChartNotes(
+        chart = this,
+        counts = counts,
+        key = key,
+        normalizedSearchText = normalizeToolSearch(
+            listOf(title, artist, noteDesigner, songId, level, songType.name, difficulty.name).joinToString(" "),
+        ),
+    )
+}
+
+internal fun ChartRecord.toMaimaiNoteCountsOrNull(): MaimaiNoteCounts? {
+    val source = notes ?: return null
+    return runCatching {
+        MaimaiNoteCounts(
+            tap = source.tap ?: return null,
+            hold = source.hold ?: return null,
+            slide = source.slide ?: return null,
+            touch = source.touch ?: return null,
+            breakCount = source.breakCount ?: return null,
+        )
+    }.getOrNull()
+}
+
+private val MaimaiNoteCounts.rawTotal: Int
+    get() = tap + hold + slide + touch + breakCount
+
+private fun ChartRecord.displayToolTitle(): String =
+    title.takeUnless(String::isBlank) ?: "（空白曲名 · ID $songId）"
+
+private fun dev.fluentmai.android.core.model.Difficulty.displayToolName(): String =
+    when (this) {
+        dev.fluentmai.android.core.model.Difficulty.BASIC -> "BASIC"
+        dev.fluentmai.android.core.model.Difficulty.ADVANCED -> "ADVANCED"
+        dev.fluentmai.android.core.model.Difficulty.EXPERT -> "EXPERT"
+        dev.fluentmai.android.core.model.Difficulty.MASTER -> "MASTER"
+        dev.fluentmai.android.core.model.Difficulty.RE_MASTER -> "Re:MASTER"
+    }
+
+private fun normalizeToolSearch(value: String): String =
+    Normalizer.normalize(value.trim(), Normalizer.Form.NFKC)
+        .lowercase(Locale.ROOT)
+        .replace(Regex("[\\s._·・:：!！?？'\"“”‘’()（）\\[\\]【】/\\\\-]+"), "")
+
+private const val MAX_NOTE_PICKER_RESULTS = 100
 
 @Composable
 private fun VersionReference(majorVersions: List<MaimaiMajorVersion>) {
     val versions = remember(majorVersions) { buildMaimaiVersionReferences(majorVersions) }
-    ToolCard("版本名称对照", "优先显示当前曲库版本表；静态回退数据集中维护在 core:model，不在 UI 散落大表。") {
+    ToolCard("版本名称与牌子对照", "曲库名称、玩家常用版本名、牌子简称和内部范围统一来自同一份领域表。") {
         versions.forEachIndexed { index, version ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top,
             ) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(version.officialName, fontWeight = FontWeight.Bold)
-                    Text(version.generation.displayName, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (version.relatedNames.isNotEmpty()) {
+                        Text(
+                            version.relatedNames.joinToString(" · "),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    val plate = version.plate
+                    Text(
+                        buildString {
+                            append(version.generation.displayName)
+                            if (plate != null) {
+                                append(" · 牌子 ").append(plate.prefixes.joinToString(" / "))
+                                append(" · ").append(plate.chartVersionStart)
+                                append("–").append(plate.chartVersionEndExclusive - 1)
+                            } else {
+                                append(" · 暂无独立牌子集合")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 AssistChip(onClick = {}, label = { Text(version.versionId.toString()) })
             }
             if (index != versions.lastIndex) HorizontalDivider()
         }
-        SourceNote("版本 ID 与正式名称来自 LXNS 公开曲库版本表；牌子简称没有稳定结构化来源，本版本不猜测补全。")
+        SourceNote("版本名称来自曲库版本表；牌子简称、BASIC～MASTER 范围与排除曲按公开收藏品 required 集合核对。")
     }
 }
 

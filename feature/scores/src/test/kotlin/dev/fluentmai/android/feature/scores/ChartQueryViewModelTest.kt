@@ -1,6 +1,7 @@
 package dev.fluentmai.android.feature.scores
 
 import androidx.lifecycle.SavedStateHandle
+import dev.fluentmai.android.core.model.AchievementRank
 import dev.fluentmai.android.core.model.Difficulty
 import dev.fluentmai.android.core.model.FullComboStatus
 import dev.fluentmai.android.core.model.FullSyncStatus
@@ -24,6 +25,7 @@ class ChartQueryViewModelTest {
         original.updateStatus(ChartStatusFilter.Played)
         original.updateSongType(SongType.DX)
         original.updateAchievementRange(99.5, 100.5)
+        original.updateRank(AchievementRank.SSS)
         original.updateFullCombo(FullComboStatus.AP)
         original.updateFullSync(FullSyncStatus.FSD)
         original.updateSort(ChartSort.AchievementDesc)
@@ -31,7 +33,7 @@ class ChartQueryViewModelTest {
 
         val restored = ChartQueryViewModel(handle)
         assertEquals("PANDORA", restored.uiState.value.filters.searchQuery)
-        assertEquals("13+", restored.uiState.value.filters.levelQuery)
+        assertEquals("", restored.uiState.value.filters.levelQuery)
         assertEquals(13.2, restored.uiState.value.filters.constantMin)
         assertEquals(14.7, restored.uiState.value.filters.constantMax)
         assertEquals(Difficulty.MASTER, restored.uiState.value.filters.difficulty)
@@ -41,11 +43,49 @@ class ChartQueryViewModelTest {
         assertEquals(SongType.DX, restored.uiState.value.filters.songType)
         assertEquals(99.5, restored.uiState.value.filters.achievementMin)
         assertEquals(100.5, restored.uiState.value.filters.achievementMax)
+        assertEquals(AchievementRank.SSS, restored.uiState.value.filters.rank)
         assertEquals(FullComboStatus.AP, restored.uiState.value.filters.fullCombo)
         assertEquals(FullSyncStatus.FSD, restored.uiState.value.filters.fullSync)
         assertEquals(ChartSort.AchievementDesc, restored.uiState.value.filters.sort)
         assertEquals(17, restored.restoredScrollIndex)
         assertEquals(96, restored.restoredScrollOffset)
+    }
+
+    @Test
+    fun playedPresetIsTemporaryAndResetCanDismissIt() {
+        val viewModel = ChartQueryViewModel(SavedStateHandle())
+        viewModel.updateSearchQuery("PANDORA")
+
+        viewModel.enterPlayedPreset()
+        assertEquals("", viewModel.uiState.value.filters.searchQuery)
+        assertEquals(ChartStatusFilter.Played, viewModel.uiState.value.filters.status)
+
+        viewModel.exitPreset()
+        assertEquals("PANDORA", viewModel.uiState.value.filters.searchQuery)
+        assertEquals(ChartStatusFilter.All, viewModel.uiState.value.filters.status)
+
+        viewModel.enterPlayedPreset()
+        viewModel.resetFilters()
+        viewModel.exitPreset()
+        assertEquals(ChartQueryFilters(), viewModel.uiState.value.filters)
+    }
+
+    @Test
+    fun exactAndRangeConstantModesReplaceEachOtherAndRejectInvalidRanges() {
+        val viewModel = ChartQueryViewModel(SavedStateHandle())
+        viewModel.updateConstantRange(13.0, 13.7)
+        assertEquals("", viewModel.uiState.value.filters.levelQuery)
+        assertEquals(13.0, viewModel.uiState.value.filters.constantMin)
+
+        viewModel.updateLevelQuery("13+")
+        assertEquals("13+", viewModel.uiState.value.filters.levelQuery)
+        assertNull(viewModel.uiState.value.filters.constantMin)
+        assertNull(viewModel.uiState.value.filters.constantMax)
+
+        viewModel.updateConstantRange(14.0, 13.0)
+        assertEquals("13+", viewModel.uiState.value.filters.levelQuery)
+        viewModel.updateConstantRange(0.9, 13.0)
+        assertEquals("13+", viewModel.uiState.value.filters.levelQuery)
     }
 
     @Test
