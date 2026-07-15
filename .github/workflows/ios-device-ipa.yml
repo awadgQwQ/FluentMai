@@ -1,0 +1,195 @@
+name: iOS Device unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ios/device-ipa
+    paths:
+      - ".github/workflows/ios-device-ipa.yml"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
+      - "gradlew"
+      - "core/model/**"
+      - "fixtures/lxns_song_list_fallback.json"
+      - "iosApp/**"
+      - "scripts/ios/**"
+
+permissions:
+  contents: read
+
+env:
+  VERSIONED_IPA: FluentMai-v0.2.0-ios-alpha.1-unsigned.ipa
+  STABLE_IPA: FluentMai-ios-unsigned.ipa
+  ARTIFACT_NAME: fluentmai-ios-device-ipa-${{ github.run_number }}
+
+jobs:
+  device-ipa:
+    name: Build and validate iphoneos arm64 IPA
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare macOS build tools
+        run: |
+          set -euo pipefail
+          chmod +x gradlew scripts/ios/validate_device_ipa.sh scripts/ios/write_device_manifest.py
+          mkdir -p build/ios-device/evidence build/ios-device/release
+          java -version 2>&1 | tee build/ios-device/evidence/java-version.txt
+          sw_vers | tee build/ios-device/evidence/macos-version.txt
+          xcodebuild -version | tee build/ios-device/evidence/xcode-version.txt
+          xcrun --sdk iphoneos --show-sdk-version | tee build/ios-device/evidence/iphoneos-sdk-version.txt
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version | tee build/ios-device/evidence/xcodegen-version.txt
+
+      - name: Build Kotlin Multiplatform iosArm64 framework
+        run: |
+          set -o pipefail
+          ./gradlew \
+            :core:model:compileCommonMainKotlinMetadata \
+            :core:model:linkReleaseFrameworkIosArm64 \
+            --stacktrace --console=plain \
+            2>&1 | tee build/ios-device/evidence/kmp-ios-arm64-build.txt
+
+      - name: Generate and inspect Xcode project
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodegen generate --spec iosApp/project.yml --project iosApp \
+            2>&1 | tee build/ios-device/evidence/xcodegen.txt
+          xcodebuild -list -project iosApp/FluentMaiIOS.xcodeproj \
+            2>&1 | tee build/ios-device/evidence/xcode-project.txt
+          xcodebuild \
+            -showBuildSettings \
+            -project iosApp/FluentMaiIOS.xcodeproj \
+            -scheme FluentMaiIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            2>&1 | tee build/ios-device/evidence/xcode-build-settings.txt
+          grep -Fq 'CONFIGURATION_BUILD_DIR' build/ios-device/evidence/xcode-build-settings.txt
+          grep -Fq 'FRAMEWORK_SEARCH_PATHS' build/ios-device/evidence/xcode-build-settings.txt
+          grep -Fq 'iphoneos' build/ios-device/evidence/xcode-build-settings.txt
+
+      - name: Build unsigned Release app for a generic iOS device
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodebuild \
+            -project iosApp/FluentMaiIOS.xcodeproj \
+            -scheme FluentMaiIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$GITHUB_WORKSPACE/build/ios-device/DerivedData" \
+            CONFIGURATION_BUILD_DIR="$GITHUB_WORKSPACE/build/ios-device/products" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            build \
+            2>&1 | tee build/ios-device/evidence/xcodebuild.txt
+
+          APP_COUNT="$(find build/ios-device/products -type d -name 'FluentMai.app' | wc -l | tr -d ' ')"
+          test "$APP_COUNT" = "1"
+          APP_PATH="$(find build/ios-device/products -type d -name 'FluentMai.app' -print -quit)"
+          test -n "$APP_PATH"
+          if echo "$APP_PATH" | grep -Eiq 'iphonesimulator|simulator'; then
+            echo "Refusing to package simulator product: $APP_PATH" >&2
+            exit 1
+          fi
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+          KMP_FRAMEWORK_BINARY="$(find core/model/build/xcode-frameworks/Release -path '*/FluentMaiShared.framework/FluentMaiShared' -print -quit)"
+          test -n "$KMP_FRAMEWORK_BINARY"
+          echo "KMP_FRAMEWORK_BINARY=$KMP_FRAMEWORK_BINARY" >> "$GITHUB_ENV"
+
+      - name: Package standard Payload IPA
+        run: |
+          set -euo pipefail
+          PACKAGE_ROOT="$GITHUB_WORKSPACE/build/ios-device/package-root"
+          rm -rf "$PACKAGE_ROOT"
+          mkdir -p "$PACKAGE_ROOT/Payload"
+          cp -R "$APP_PATH" "$PACKAGE_ROOT/Payload/FluentMai.app"
+          cd "$PACKAGE_ROOT"
+          /usr/bin/zip -qry -X "$GITHUB_WORKSPACE/build/ios-device/release/$VERSIONED_IPA" Payload
+          cd "$GITHUB_WORKSPACE"
+          cp "build/ios-device/release/$VERSIONED_IPA" "build/ios-device/release/$STABLE_IPA"
+          test -s "build/ios-device/release/$VERSIONED_IPA"
+          test -s "build/ios-device/release/$STABLE_IPA"
+
+      - name: Statically validate device IPA
+        run: |
+          scripts/ios/validate_device_ipa.sh \
+            "build/ios-device/release/$VERSIONED_IPA" \
+            "build/ios-device/evidence" \
+            "$KMP_FRAMEWORK_BINARY" \
+            "build/ios-device/evidence/xcodebuild.txt"
+
+      - name: Generate SHA-256 and build manifest
+        run: |
+          set -euo pipefail
+          cd build/ios-device/release
+          shasum -a 256 "$VERSIONED_IPA" "$STABLE_IPA" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd "$GITHUB_WORKSPACE"
+
+          XCODE_VERSION="$(xcodebuild -version | paste -sd ' ' -)"
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          MACOS_VERSION="$(sw_vers -productVersion)"
+          KOTLIN_VERSION="$(awk -F '"' '/org.jetbrains.kotlin.multiplatform/ { print $4; exit }' build.gradle.kts)"
+          test -n "$KOTLIN_VERSION"
+
+          scripts/ios/write_device_manifest.py \
+            --ipa "build/ios-device/release/$VERSIONED_IPA" \
+            --app "$APP_PATH" \
+            --kmp-framework-binary "$KMP_FRAMEWORK_BINARY" \
+            --output build/ios-device/release/ios-device-build-manifest.json \
+            --xcode-version "$XCODE_VERSION" \
+            --iphoneos-sdk-version "$SDK_VERSION" \
+            --macos-version "$MACOS_VERSION" \
+            --runner-image macos-15 \
+            --kotlin-version "$KOTLIN_VERSION" \
+            --build-configuration Release \
+            --artifact-name "$ARTIFACT_NAME"
+
+          python3 -m json.tool build/ios-device/release/ios-device-build-manifest.json >/dev/null
+          cp IOS_SIDELOAD_GUIDE.zh-CN.md build/ios-device/release/
+          cp IOS_RELEASE_NOTES.zh-CN.md build/ios-device/release/
+          ls -lh build/ios-device/release
+
+      - name: Upload unsigned device IPA and evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            build/ios-device/release/FluentMai-v0.2.0-ios-alpha.1-unsigned.ipa
+            build/ios-device/release/FluentMai-ios-unsigned.ipa
+            build/ios-device/release/IOS_SIDELOAD_GUIDE.zh-CN.md
+            build/ios-device/release/IOS_RELEASE_NOTES.zh-CN.md
+            build/ios-device/release/SHA256SUMS.txt
+            build/ios-device/release/ios-device-build-manifest.json
+            build/ios-device/evidence/*.txt
+          if-no-files-found: error
+          retention-days: 30
