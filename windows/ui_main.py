@@ -7,7 +7,8 @@ else:
     data_dir = os.path.dirname(os.path.abspath(__file__))
 
 from PyQt6.QtGui import QPixmap, QIcon
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSettings, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy
 from qfluentwidgets import (FluentWindow, FluentIcon as FIF,
                             NavigationItemPosition, Theme, setTheme, qconfig)
@@ -19,6 +20,12 @@ from ui_scores import ScoresInterface
 from ui_library import LibraryInterface
 from ui_settings import SettingsInterface
 from ui_about import AboutInterface
+from fluentmai_core.runtime_paths import settings_path
+from fluentmai_core.window_state import (
+    adaptive_minimum_size,
+    centered_window_rect,
+    clamp_window_rect,
+)
 
 
 class BrandingWidget(QWidget):
@@ -74,8 +81,13 @@ class MainWindow(FluentWindow):
 
         self.setWindowTitle("FluentMai")
         self.setWindowIcon(QIcon(os.path.join(data_dir, "assets", "logo.ico")))
-        self.resize(1180, 760)
-        self.setMinimumSize(860, 620)
+        settings_file = settings_path()
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        self._window_settings = QSettings(
+            str(settings_file),
+            QSettings.Format.IniFormat,
+        )
+        self._screen_signal_connected = False
 
         self.navigationInterface.setReturnButtonVisible(False)
         self.navigationInterface.setExpandWidth(207)
@@ -123,8 +135,65 @@ class MainWindow(FluentWindow):
 
         self.navigationInterface.expand()
 
+        self._restore_window_placement()
+
+    @staticmethod
+    def _available_screen_rects():
+        primary = QGuiApplication.primaryScreen()
+        screens = QGuiApplication.screens()
+        ordered = ([primary] if primary is not None else []) + [
+            screen for screen in screens if screen is not primary
+        ]
+        return [screen.availableGeometry() for screen in ordered]
+
+    def _restore_window_placement(self) -> None:
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(1180, 760)
+            self.setMinimumSize(760, 520)
+            return
+
+        available = screen.availableGeometry()
+        self.setMinimumSize(adaptive_minimum_size(available))
+        saved_geometry = self._window_settings.value("window/geometry")
+        restored = bool(saved_geometry) and self.restoreGeometry(saved_geometry)
+        if not restored:
+            self.setGeometry(centered_window_rect(available))
+        self._ensure_window_visible()
+
+        maximized = self._window_settings.value("window/maximized", False, type=bool)
+        if maximized:
+            self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+
+    def _ensure_window_visible(self) -> None:
+        screen_rects = self._available_screen_rects()
+        if not screen_rects:
+            return
+        target = clamp_window_rect(self.geometry(), screen_rects)
+        current_screen = self.screen() or QGuiApplication.primaryScreen()
+        if current_screen is not None:
+            self.setMinimumSize(adaptive_minimum_size(current_screen.availableGeometry()))
+        if not self.isMaximized() and target != self.geometry():
+            self.setGeometry(target)
+
+    def _on_screen_changed(self, screen) -> None:
+        if screen is not None:
+            self.setMinimumSize(adaptive_minimum_size(screen.availableGeometry()))
+        QTimer.singleShot(0, self._ensure_window_visible)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        handle = self.windowHandle()
+        if handle is not None and not self._screen_signal_connected:
+            handle.screenChanged.connect(self._on_screen_changed)
+            self._screen_signal_connected = True
+        QTimer.singleShot(0, self._ensure_window_visible)
+
     def closeEvent(self, event):
         if not self.home_interface.prepare_to_close():
             event.ignore()
             return
+        self._window_settings.setValue("window/geometry", self.saveGeometry())
+        self._window_settings.setValue("window/maximized", self.isMaximized())
+        self._window_settings.sync()
         super().closeEvent(event)

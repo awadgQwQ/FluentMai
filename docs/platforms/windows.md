@@ -27,6 +27,8 @@ The Windows workflow runs only for changes under `windows/`, `scripts/windows/`,
 
 The capture foundation is local-only: a random authenticated loopback helper returns Wahlap pages in memory, the main process parses and atomically imports them, and a DPAPI-protected journal restores the exact WinINET/WinHTTP baseline after success, cancellation, failure, close, or the next startup. The authenticated WeChat WebView fetches all five difficulty pages from a no-store same-origin prompt and returns them to a nonce-protected path that the helper short-circuits locally; Cookies and raw pages are never persisted. Real-account and packaged-helper validation imported 1,632 local score rows, produced a 35/15 B35/B15 snapshot, and repeated twice without creating duplicate scores.
 
+The desktop shell is taskbar-, monitor-, and high-DPI-aware. Long import/settings documents have one primary scroll area; first-run and restored geometry is kept inside the active screen work area; removed-monitor restores return to the primary screen; and maximized state is stored in the per-user AppData settings file. Automated scale coverage runs at 100%, 125%, 150%, 175%, and 200%.
+
 ## Data, artwork, and release limits
 
 - Windows data is not the Android Room database and has no documented cross-platform migration path.

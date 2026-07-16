@@ -23,6 +23,8 @@ python main.py
 
 Runtime data is local. Set `FLUENTMAI_DB_PATH` to choose an explicit database path for tests or experiments. Do not use a real user database in CI.
 
+Window geometry, maximized state, and future user preferences share `%LOCALAPPDATA%\FluentMai\settings.ini`; portable and installed builds therefore use the same settings location. Restored geometry is constrained to a visible monitor work area.
+
 ## Tests and static compilation
 
 From the repository root:

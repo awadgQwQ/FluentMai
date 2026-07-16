@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 
 from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLineEdit
 from qfluentwidgets import (
     BodyLabel,
@@ -12,6 +13,7 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
     PushButton,
+    ScrollArea,
     MessageBox,
     SubtitleLabel,
 )
@@ -224,7 +226,7 @@ class ImportWorker(QThread):
         }
 
 
-class HomeInterface(QWidget):
+class HomeInterface(ScrollArea):
     """Import center for local Wahlap, Diving-Fish, and LXNS data."""
 
     def __init__(self, parent=None):
@@ -233,9 +235,15 @@ class HomeInterface(QWidget):
         self._worker: ImportWorker | None = None
         self._capture_worker: CaptureImportWorker | None = None
 
-        self.layout = QVBoxLayout(self)
+        self.view = QWidget(self)
+        self.view.setObjectName("HomeScrollContent")
+        self.layout = QVBoxLayout(self.view)
         self.layout.setContentsMargins(24, 32, 24, 24)
         self.layout.setSpacing(16)
+        self.setWidget(self.view)
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         title = SubtitleLabel("导入中心")
         title.setStyleSheet("font-size: 26px; font-weight: bold;")

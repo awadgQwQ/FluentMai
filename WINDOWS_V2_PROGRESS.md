@@ -6,7 +6,7 @@ This is the single working report for the Windows 2.0 product update. It must no
 
 ## Status
 
-- Phase: P0 real WeChat capture loop complete; next checkpoint is window sizing/high-DPI responsiveness
+- Phase: P1 responsive/high-DPI shell complete; next checkpoint is Android core-feature parity
 - Branch: `feat/windows-product-parity`
 - Starting commit: `6fff45d5b7f85b358e2e05a249632010417ec55b`
 - Current release decision: development may continue; public Windows release is blocked pending a project-license/Qt binding decision and complete packaged-license verification
@@ -14,6 +14,7 @@ This is the single working report for the Windows 2.0 product update. It must no
 - System network result: every real attempt restored the exact preflight WinINET and WinHTTP snapshots. Final proxy hash is `c95f9dd3f866b4d21e5fc3ed6de790229eb01ed3b735e00fe85825c5e8d79104`, final WinHTTP fingerprint is `5b07a5d64e5af355c0d92253ce43abf88f6197a0aaa5ea221b0269ba6533fd70`, no recovery journal exists, and no helper/certutil process remains.
 - WeChat preference result: `Use the system default browser to open third-party web pages` was temporarily disabled for capture and verified restored to its original enabled state after packaged-helper validation.
 - Third-party uploads made by this task so far: none
+- P1 status: complete. Long pages own their scroll areas; default/restored geometry is constrained to the active work area; maximized state and per-user geometry persist under AppData; missing-monitor restores return to the primary screen.
 
 ## Git baseline
 
@@ -153,6 +154,15 @@ Current physical desktop baseline:
 
 Although `MainWindow` calls `resize(1180, 760)`, the real Qt window was forced to `1180 x 1175` by child size constraints. It exceeds the available work area by 223 px, reproducing the invisible-bottom defect. This proves that increasing or merely changing the default height is not a sufficient fix.
 
+P1 result:
+
+- The import page's baseline minimum-size hint was 692 x 1,002 before global control styling and drove the top-level defect. Import and settings are now explicit single-scroll pages instead of contributing their full document height to the window stack.
+- Default geometry is centered and clamped inside the current `availableGeometry`; the minimum size adapts when high-DPI logical work areas are smaller than the normal 760 x 520 desktop minimum.
+- Saved geometry and maximized state use `%LOCALAPPDATA%\\FluentMai\\settings.ini` for both portable and installed layouts. Restored windows are clamped fully on-screen when a monitor is removed, and screen changes recompute the safe minimum.
+- A real Windows-QPA run reported Qt logical DPI 96, device-pixel ratio 2.0, available work area 1,600 x 952, and a 1,166 x 753 frame at (217, 96). Its bottom edge was 849 and the import page exposed a 706 px vertical scroll range, so the title bar and bottom remained reachable on the current high-DPI desktop.
+- Subprocess coverage passes at Qt scale factors 100%, 125%, 150%, 175%, and 200%. Synthetic work-area tests cover 1280 x 720-class taskbar geometry and a 683 x 384 high-DPI logical work area.
+- Smoke/UI tests set `FLUENTMAI_DATA_DIR` to temporary storage, so geometry validation cannot create or overwrite a real user setting. The one test-only settings file found during implementation was removed without touching the score database.
+
 Ignored baseline screenshots are under:
 
 ```text
@@ -250,12 +260,14 @@ Gaps against Windows 2.0:
 | `.\scripts\windows\smoke_test.ps1 -Mode source` | 0 | final source smoke passed |
 | `.\scripts\windows\build_portable.ps1` | 0 | final portable build passed; ZIP SHA-256 `9340bf497c32ef0b9101c9b0212c0619b9b4f31b8c884bb21a252a6f611f6135` |
 | final packaged main/helper smoke and artifact audit | 0 | both smokes passed; forbidden files 0; jacket directory absent; declared ZIP checksum matched |
+| `python -m pytest -q windows/tests` | 0 | 76 passed after P1 window, scroll, monitor-loss, and 100%-200% scale coverage |
+| real Windows-QPA P1 geometry probe | 0 | DPR 2.0; 1,166 x 753 frame stayed inside 1,600 x 952 available work area; import bottom reachable by scrolling |
 
 ## Checkpoints
 
 - [x] `chore: establish Windows v2 baseline`
 - [x] `feat: integrate local Wahlap capture pipeline`
-- [ ] `fix: make Windows shell responsive and DPI safe`
+- [x] `fix: make Windows shell responsive and DPI safe`
 - [ ] `feat: reach Android feature parity on Windows`
 - [ ] `ui: adopt FluentMai Windows design system`
 - [ ] `feat: add Windows settings about and updater`
@@ -265,8 +277,8 @@ Gaps against Windows 2.0:
 
 ## Immediate next work
 
-1. Start the window-size/high-DPI checkpoint; the measured top-level minimum-height defect remains open.
-2. Continue Android core-feature parity and replace the legacy third-party dashboard cache with the validated local Rating/statistics views.
+1. Continue Android core-feature parity and replace the legacy third-party dashboard cache with validated local Rating/statistics views.
+2. Add player statistics, plates, Rating Trend, recommendations, and the remaining Android-equivalent tools on the local database.
 3. Keep public release blocked until the project/PyQt/Fluent-Widgets license path is explicitly selected and packaged-license verification is complete.
 
 ## P0 foundation checkpoint evidence
@@ -286,3 +298,12 @@ Gaps against Windows 2.0:
 - The import center now exposes one high-contrast primary action plus a fixed cancel/recover action, requires explicit CA/proxy consent, runs capture off the UI thread, reports only safe stage metadata, and distinguishes verified restoration from an unverified restoration error.
 - Application startup consumes a protected pending journal before creating the main window; close waits for capture cancellation and restoration. The portable archive exposes both double-click recovery scripts beside the application.
 - A read-only UI render confirmed the P0 controls are visible. It also measured the still-unfixed top-level height at 1,344 px, so the separate window/DPI checkpoint remains mandatory after real P0.
+
+## P1 responsive shell checkpoint evidence
+
+- The root cause was removed rather than hidden by a larger default: the 1,002 px import-page minimum hint is now isolated behind one vertical scroll area, and the main shell minimum-size hint no longer inherits the long form.
+- Window placement is based on each screen's taskbar-aware available geometry. First launch is centered; restored and cross-screen windows are resized/moved inside a safe inset; a missing prior display falls back to the primary screen.
+- Geometry and maximized state persist in the shared per-user AppData location, not beside the source tree or portable executable.
+- Scale-factor subprocesses at 1.0, 1.25, 1.5, 1.75, and 2.0 all constructed and showed the shell inside the reported work area with the import scroll bar active.
+- The current desktop was also measured through the real Windows platform plugin at DPR 2.0. The resulting 1,166 x 753 frame fit in the 1,600 x 952 work area with 103 logical pixels below it.
+- Tests include default centering, adaptive minimum sizing, missing-monitor recovery, explicit scroll ownership, settings/import bottom reachability, and temporary-storage isolation. The full Windows suite is 76/76 passing.

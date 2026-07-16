@@ -58,6 +58,12 @@ def update_root() -> Path:
     return user_data_root() / "updates"
 
 
+def settings_path() -> Path:
+    """Return the per-user settings file used by portable and installed builds."""
+
+    return user_data_root() / "settings.ini"
+
+
 def legacy_database_candidates(target: Path | None = None) -> list[Path]:
     target = (target or database_path()).resolve()
     explicit = os.environ.get("FLUENTMAI_LEGACY_DB_PATH")
