@@ -29,6 +29,8 @@ The capture foundation is local-only: a random authenticated loopback helper ret
 
 The desktop shell is taskbar-, monitor-, and high-DPI-aware. Long import/settings documents have one primary scroll area; first-run and restored geometry is kept inside the active screen work area; removed-monitor restores return to the primary screen; and maximized state is stored in the per-user AppData settings file. Automated scale coverage runs at 100%, 125%, 150%, 175%, and 200%.
 
+Windows now implements the Android core product semantics through a desktop information architecture: local Overview, Import, one virtualized chart browser, Tools, Settings, and a standalone About destination. Rating/B35/B15, filter-dependent player statistics, editable Rating Trend, version plates, deterministic recommendations, selected-chart Note loss, version reference, and the Kaleid×Scope audited unavailable boundary are local-first. See [the Android–Windows feature matrix](../windows/android-windows-feature-matrix.md).
+
 ## Data, artwork, and release limits
 
 - Windows data is not the Android Room database and has no documented cross-platform migration path.

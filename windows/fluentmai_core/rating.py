@@ -16,6 +16,12 @@ class RatedScore:
     level_value: float
     chart_version: int
     rating: int
+    chart_type: str
+    difficulty_index: int
+    difficulty_name: str
+    dx_score: int | None
+    full_combo: str
+    full_sync: str
 
 
 @dataclass(frozen=True)
@@ -103,6 +109,8 @@ def compute_best_set(conn: sqlite3.Connection) -> BestSet:
         """
         SELECT
             sr.identity_key, sr.title, sr.achievements,
+            sr.chart_type, sr.difficulty_index, sr.difficulty_name,
+            sr.dx_score, sr.full_combo, sr.full_sync,
             COALESCE(c.level_value, sr.level_value) AS rating_level_value,
             c.chart_version
         FROM score_records sr
@@ -135,6 +143,12 @@ def compute_best_set(conn: sqlite3.Connection) -> BestSet:
             level_value=float(level_value),
             chart_version=version,
             rating=calculate_dx_rating(float(level_value), float(row["achievements"])),
+            chart_type=str(row["chart_type"]),
+            difficulty_index=int(row["difficulty_index"]),
+            difficulty_name=str(row["difficulty_name"]),
+            dx_score=int(row["dx_score"]) if row["dx_score"] is not None else None,
+            full_combo=str(row["full_combo"] or ""),
+            full_sync=str(row["full_sync"] or ""),
         )
         (current if version == current_version_id else old).append(rated)
 
@@ -187,9 +201,10 @@ def record_import_snapshot(
     if history_inserted:
         conn.execute(
             """
-            INSERT INTO rating_history(recorded_at, rating, source, source_batch_id, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO rating_history(
+                recorded_at, rating, source, source_batch_id, note, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, NULL, ?, ?)
             """,
-            (recorded_at, best_set.rating, source, batch_id, recorded_at),
+            (recorded_at, best_set.rating, source, batch_id, recorded_at, recorded_at),
         )
     return RatingSnapshotResult(best_set, rating_before, history_inserted)

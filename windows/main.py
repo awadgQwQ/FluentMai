@@ -46,7 +46,7 @@ if __name__ == '__main__':
         raise SystemExit(2)
     window = MainWindow()
     if recovered_previous_capture:
-        window.home_interface.report_startup_recovery()
+        window.import_interface.report_startup_recovery()
     window.show()
     if smoke_test:
         QTimer.singleShot(3000, app.quit)

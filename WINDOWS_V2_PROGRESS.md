@@ -6,7 +6,7 @@ This is the single working report for the Windows 2.0 product update. It must no
 
 ## Status
 
-- Phase: P1 responsive/high-DPI shell complete; next checkpoint is Android core-feature parity
+- Phase: P2 Android core-feature parity complete; next checkpoint is the FluentMai Windows design system and desktop settings/about/update experience
 - Branch: `feat/windows-product-parity`
 - Starting commit: `6fff45d5b7f85b358e2e05a249632010417ec55b`
 - Current release decision: development may continue; public Windows release is blocked pending a project-license/Qt binding decision and complete packaged-license verification
@@ -15,6 +15,7 @@ This is the single working report for the Windows 2.0 product update. It must no
 - WeChat preference result: `Use the system default browser to open third-party web pages` was temporarily disabled for capture and verified restored to its original enabled state after packaged-helper validation.
 - Third-party uploads made by this task so far: none
 - P1 status: complete. Long pages own their scroll areas; default/restored geometry is constrained to the active work area; maximized state and per-user geometry persist under AppData; missing-monitor restores return to the primary screen.
+- P2 status: complete. Windows now uses the six-destination product IA, local Overview, one virtualized chart browser, exact filter-dependent statistics, version plates, editable Trend, deterministic recommendations, automatic/manual Note loss tools, shared cross-platform fixtures, and canonical difficulty visuals.
 
 ## Git baseline
 
@@ -69,26 +70,24 @@ The task message referred to additional attached FluentMai/RhythmAlign screensho
 - Local song/chart catalog, score table, quarantine and import-batch tables
 - Real WeChat/Wahlap capture through a FluentMai-owned current-user CA, exact recoverable system proxy, authenticated IPC, and nonce-protected same-origin browser-memory collection with no default upload
 - Local Rating/B35/B15 snapshots derived from `score_records`, deduplicated Rating Trend history, and aggregate player statistics derived from the local database
-- Local score browser and a virtualized `QAbstractListModel`/delegate chart browser
+- Local Overview and one virtualized `QAbstractListModel`/delegate chart browser with filter-dependent player statistics
+- Runtime LXNS/Yuzu aliases, Simplified/Traditional search, complete Android score filters, chart detail/sibling switching, and canonical difficulty visuals
+- Version plates, editable Rating Trend, deterministic recommendations, automatic/manual Note loss, version reference, and Kaleid×Scope unavailable boundary
 - Catalog refresh from Diving Fish/LXNS
 - Runtime/user-cache jacket resolution
-- Legacy third-party B35/B15 dashboard cache
 - Basic settings and about pages
 - Source/package smoke-test mechanism and portable content audit
 
 ### Missing or materially incomplete
 
-- Player-statistics UI, plates, recommendations, score-loss chart selection, and Kaleid×Scope boundary UI
-- Unified information architecture (`首页 / 导入 / 谱面 / 工具 / 设置 / 关于`)
 - Complete settings/privacy/diagnostics/update experience
 - Installer, update channels, and Windows-only release filtering
 
-### Unsafe legacy paths to retire
+### Retired legacy paths
 
-- `windows/interceptor.py` writes captured HTML to disk.
-- `windows/sync_core.py` treats third-party upload as the primary result.
-- `windows/PROXY_SETUP.md` documents machine-wide/manual setup and HTML dumps.
-- The current `CaptureHelperController` searches for and launches the official binary, has a no-op default proxy backend, and has no authenticated IPC or crash journal.
+- `windows/interceptor.py`, `windows/sync_core.py`, and `windows/PROXY_SETUP.md` were removed after the authenticated local capture path passed real validation.
+- The external-player `ui_dashboard.py` / `fetch_profile.py` cache path and duplicate `ui_scores.py` page were removed after their user-facing capabilities moved to local Overview and the unified chart browser.
+- Existing database tables/rows are preserved; no migration deletes legacy user data.
 
 ## Data baseline and backup
 
@@ -262,13 +261,19 @@ Gaps against Windows 2.0:
 | final packaged main/helper smoke and artifact audit | 0 | both smokes passed; forbidden files 0; jacket directory absent; declared ZIP checksum matched |
 | `python -m pytest -q windows/tests` | 0 | 76 passed after P1 window, scroll, monitor-loss, and 100%-200% scale coverage |
 | real Windows-QPA P1 geometry probe | 0 | DPR 2.0; 1,166 x 753 frame stayed inside 1,600 x 952 available work area; import bottom reachable by scrolling |
+| `python -m pytest -q windows/tests` | 0 | 95 passed after P2 domain, database, alias, unified UI, tools, navigation reservation and cross-fixture coverage |
+| `:core:model:jvmTest :feature:scores:testDebugUnitTest` | 0 | Kotlin consumed the shared Rating, B50, player, alias, plate, loss and search fixtures |
+| real schema 2 -> 3 migration | 0 | backup count 15 -> 16; integrity `ok`; 1,632 scores and semantic hash `2c9f13d…bcbcb` unchanged |
+| real public alias refresh | 0 | 1,324 songs / 10,488 aliases cached locally without credentials or upload |
+| real Windows-QPA P2 render at DPR 2.0 | 0 | Overview, Tools and Library passed; a first render exposed the navigation overlay and the corrected render confirmed reserved 207px sidebar space |
+| `.\gradlew.bat testDebugUnitTest assembleDebug --no-daemon` | 0 | all Android unit tasks and debug assembly passed after adding shared-fixture consumers; Android product code/behavior unchanged |
 
 ## Checkpoints
 
 - [x] `chore: establish Windows v2 baseline`
 - [x] `feat: integrate local Wahlap capture pipeline`
 - [x] `fix: make Windows shell responsive and DPI safe`
-- [ ] `feat: reach Android feature parity on Windows`
+- [x] `feat: reach Android feature parity on Windows`
 - [ ] `ui: adopt FluentMai Windows design system`
 - [ ] `feat: add Windows settings about and updater`
 - [ ] `perf: optimize Windows chart browsing`
@@ -277,8 +282,8 @@ Gaps against Windows 2.0:
 
 ## Immediate next work
 
-1. Continue Android core-feature parity and replace the legacy third-party dashboard cache with validated local Rating/statistics views.
-2. Add player statistics, plates, Rating Trend, recommendations, and the remaining Android-equivalent tools on the local database.
+1. Apply the FluentMai Windows design system consistently to the remaining import, settings and about surfaces without changing the validated product semantics.
+2. Complete privacy/diagnostics/update settings and the standalone About page using RhythmAlign's desktop patterns.
 3. Keep public release blocked until the project/PyQt/Fluent-Widgets license path is explicitly selected and packaged-license verification is complete.
 
 ## P0 foundation checkpoint evidence
@@ -307,3 +312,16 @@ Gaps against Windows 2.0:
 - Scale-factor subprocesses at 1.0, 1.25, 1.5, 1.75, and 2.0 all constructed and showed the shell inside the reported work area with the import scroll bar active.
 - The current desktop was also measured through the real Windows platform plugin at DPR 2.0. The resulting 1,166 x 753 frame fit in the 1,600 x 952 work area with 103 logical pixels below it.
 - Tests include default centering, adaptive minimum sizing, missing-monitor recovery, explicit scroll ownership, settings/import bottom reachability, and temporary-storage isolation. The full Windows suite is 76/76 passing.
+
+## P2 Android parity checkpoint evidence
+
+- The left navigation is exactly `首页 / 导入 / 谱面 / 工具 / 设置 / 关于`. The local Overview replaces the former third-party player dashboard and exposes Rating, score/chart counts, B35/B15, filtered statistics, Trend, plates, recommendations and quick routes.
+- The chart browser is the only catalog/player-score surface. It searches runtime LXNS/Yuzu aliases, Simplified/Traditional forms, full-/half-width text, IDs, BPM, artists and designers; filters all Android score/status dimensions; and keeps the virtualized delegate implementation.
+- Schema 3 additively adds alias cache, manual Trend metadata and recommendation exclusions. Before the real migration, the database was schema 2 / integrity `ok` / 1,632 scores. After migration and alias refresh it is schema 3 / integrity `ok` / 1,632 scores; the task-specific score semantic hash stayed `2c9f13d355580ea943e16538ead15dec331942cbb1c156063a311453ad8bcbcb`. A new integrity-checked backup was created.
+- The real public runtime alias refresh merged usable LXNS/Yuzu data into 1,324 song identities and 10,488 aliases. The app rejects empty updates and any refresh retaining under 80% of the prior song or alias count.
+- Shared fixtures under `test-fixtures/` are read by Kotlin and Python for Rating, B50 future batches, player statistics, aliases, search, FiNALE/PANDORA plate membership, Note loss and version boundaries. Recommendations also read their common cutoff/candidate fixture.
+- Trend supports automatic deduplication plus manual add/edit/delete, three time ranges and restart persistence. Automatic rows are protected from editing/deletion.
+- Recommendation output is a deterministic B35/B15 simulation with actual cutoff replacement gain, closed-set explanations, filters and persistent “不想练” identities. It does not claim player-skill prediction.
+- The selected-chart loss flow fills five Note types from catalog data, keeps manual mode, and uses the same weighted/BREAK formula as Android. Kaleid×Scope remains an explicit audited unavailable state on both platforms.
+- Real DPR 2.0 PrintWindow review showed the first forced-expanded navigation incorrectly covered content. Expansion was moved after final geometry selection and made adaptive; the corrected Overview reserves 207 logical px, while narrow shells use a 48px rail. Tools and Library renders confirmed reachable scroll, visible filters/cards, and distinct MASTER/Re:MASTER treatments.
+- Detailed status, test ownership and intentional platform differences are recorded in `docs/windows/android-windows-feature-matrix.md`.

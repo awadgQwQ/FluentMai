@@ -2,7 +2,6 @@ import hashlib
 from pathlib import Path
 import sqlite3
 
-import fetch_profile
 import sync_data
 from fluentmai_core import database
 from fluentmai_core import runtime_paths
@@ -12,7 +11,6 @@ def test_all_database_entry_points_honor_explicit_runtime_path(monkeypatch, tmp_
     expected = tmp_path / "fluentmai-test.db"
     monkeypatch.setenv("FLUENTMAI_DB_PATH", str(expected))
 
-    assert Path(fetch_profile.default_db_path()) == expected
     assert Path(sync_data.default_db_path()) == expected
     assert Path(database.default_db_path()) == expected
 
@@ -20,7 +18,7 @@ def test_all_database_entry_points_honor_explicit_runtime_path(monkeypatch, tmp_
 def test_default_database_paths_do_not_point_to_repository_root(monkeypatch):
     monkeypatch.delenv("FLUENTMAI_DB_PATH", raising=False)
 
-    for path in (fetch_profile.default_db_path(), sync_data.default_db_path(), database.default_db_path()):
+    for path in (sync_data.default_db_path(), database.default_db_path()):
         assert Path(path).name == "maimai_data.db"
 
 
@@ -55,6 +53,10 @@ def test_legacy_database_is_copied_and_migrated_without_changing_source(monkeypa
     migrated = database.connect()
     assert migrated.execute("SELECT value FROM legacy_user_data").fetchone()[0] == "keep-me"
     assert migrated.execute("PRAGMA user_version").fetchone()[0] == database.SCHEMA_VERSION
+    assert {row[1] for row in migrated.execute("PRAGMA table_info(rating_history)")} >= {
+        "note",
+        "updated_at",
+    }
     assert migrated.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     migrated.close()
 

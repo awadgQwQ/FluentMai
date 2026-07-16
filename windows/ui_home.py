@@ -19,6 +19,7 @@ from qfluentwidgets import (
 )
 
 from fluentmai_core.automatic_import import run_wahlap_capture_import
+from fluentmai_core.aliases import refresh_alias_catalog
 from fluentmai_core.catalog import sync_diving_fish_catalog, sync_lxns_catalog
 from fluentmai_core.capture_session import CaptureError, LocalCaptureController
 from fluentmai_core.import_pipeline import import_parsed_records
@@ -211,6 +212,15 @@ class ImportWorker(QThread):
             except Exception as fallback_exc:
                 errors.append(f"Diving-Fish: {redactor.redact(fallback_exc)}")
                 raise RuntimeError("; ".join(errors) or "Catalog refresh failed.")
+        try:
+            conn = database.connect(self.payload.get("db_path"))
+            try:
+                alias_songs, alias_count = refresh_alias_catalog(conn)
+                message += f"; aliases {alias_songs}/{alias_count}"
+            finally:
+                conn.close()
+        except Exception as exc:
+            errors.append(f"Aliases: {redactor.redact(exc)}")
         return {
             "success": True,
             "summary": {
@@ -228,6 +238,8 @@ class ImportWorker(QThread):
 
 class HomeInterface(ScrollArea):
     """Import center for local Wahlap, Diving-Fish, and LXNS data."""
+
+    dataChanged = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -502,6 +514,7 @@ class HomeInterface(ScrollArea):
         self.status_label.setText(text)
         self._log(text)
         InfoBar.success("微信导入完成", text, duration=7000, position=InfoBarPosition.TOP_RIGHT, parent=self)
+        self.dataChanged.emit()
 
     def _capture_summary_text(self, result: dict, summary: dict) -> str:
         rating_before = summary.get("rating_before")
@@ -542,6 +555,7 @@ class HomeInterface(ScrollArea):
         self.status_label.setText(text)
         self._log(text)
         InfoBar.success("完成", text, duration=5000, position=InfoBarPosition.TOP_RIGHT, parent=self)
+        self.dataChanged.emit()
 
     def _summary_text(self, summary: dict) -> str:
         source = summary.get("source", "")

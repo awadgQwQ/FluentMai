@@ -8,7 +8,7 @@ import time
 import unicodedata
 
 
-DIFFICULTY_NAMES = ["Basic", "Advanced", "Expert", "Master", "Re:Master"]
+DIFFICULTY_NAMES = ["BASIC", "ADVANCED", "EXPERT", "MASTER", "Re:MASTER"]
 DIFFICULTY_WIRE_NAMES = ["basic", "advanced", "expert", "master", "remaster"]
 VALID_FC = {"", "fc", "fcp", "ap", "app"}
 VALID_FS = {"", "sync", "fs", "fsp", "fsd", "fsdp"}

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import csv
+from pathlib import Path
+
 from fluentmai_core import database
 from fluentmai_core.import_pipeline import import_parsed_records
 from fluentmai_core.models import Chart, MajorVersion, ParsedScoreRecord, Song
@@ -22,11 +25,12 @@ def _seed_versioned_scores(db_path):
     songs = []
     charts = []
     records = []
-    specs = [
-        ("old", 25000, 40, 13.0),
-        ("current", 25500, 20, 14.0),
-        ("future", 25501, 5, 15.0),
-    ]
+    fixture = Path(__file__).resolve().parents[2] / "test-fixtures" / "b50" / "future-version.tsv"
+    with fixture.open(encoding="utf-8", newline="") as handle:
+        specs = [
+            (row["bucket"], int(row["chart_version"]), int(row["count"]), float(row["level_value"]))
+            for row in csv.DictReader(handle, delimiter="\t")
+        ]
     song_id = 1
     for prefix, version, count, level_value in specs:
         for index in range(count):

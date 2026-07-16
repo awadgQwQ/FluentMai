@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 from PyQt6.QtCore import QPoint, QRect, QSize
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QAbstractScrollArea
 
 from fluentmai_core.window_state import (
@@ -76,8 +77,6 @@ import os, sys
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ.setdefault('FLUENTMAI_DISABLE_JACKET_NETWORK', '1')
 from PyQt6.QtWidgets import QApplication
-from ui_dashboard import DashboardInterface
-DashboardInterface._background_refresh = lambda self: None
 from ui_main import MainWindow
 app = QApplication(sys.argv[:1])
 window = MainWindow()
@@ -88,8 +87,8 @@ geometry = window.frameGeometry()
 assert window.minimumSizeHint().height() <= window.minimumHeight()
 assert geometry.width() <= available.width()
 assert geometry.height() <= available.height()
-assert window.home_interface.verticalScrollBar().maximum() > 0
-window.home_interface._capture_worker = None
+assert window.import_interface.verticalScrollBar().maximum() > 0
+window.import_interface._capture_worker = None
 window.hide()
 """
     for scale in ("1", "1.25", "1.5", "1.75", "2"):
@@ -109,3 +108,25 @@ window.hide()
             timeout=30,
         )
         assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_wide_navigation_reserves_space_and_narrow_navigation_compacts(qapp, tmp_path, monkeypatch):
+    monkeypatch.setenv("FLUENTMAI_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("FLUENTMAI_DB_PATH", str(tmp_path / "window.db"))
+    monkeypatch.setenv("FLUENTMAI_DISABLE_JACKET_NETWORK", "1")
+    from ui_main import MainWindow
+
+    window = MainWindow()
+    window.resize(1180, 760)
+    window._navigation_wide = None
+    window._sync_navigation_mode()
+    assert window._navigation_wide
+    assert window.navigationInterface.panel.width() == 207
+
+    window.resize(800, 700)
+    window._navigation_wide = None
+    window._sync_navigation_mode()
+    QTest.qWait(350)
+    assert not window._navigation_wide
+    assert window.navigationInterface.panel.width() == 48
+    window.close()
