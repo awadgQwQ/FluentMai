@@ -1,0 +1,42 @@
+{
+    "tab_home": "Home",
+    "tab_dashboard": "Dashboard",
+    "tab_settings": "Settings",
+    "tab_about": "About",
+
+    "home_title": "maimai DX Score Sync",
+    "home_desc": "Fetch scores from Wahlap and upload to Diving-Fish.\nPaste the full Reqable request headers below — we'll extract everything automatically.",
+    "home_cookie_label": "Reqable Capture Data",
+    "home_cookie_placeholder": "Paste all HTTP headers from Reqable here\n(includes :method:/cookie:/user-agent: lines)",
+    "home_cookie_hint": "WeChat → Reqable → maimai record page → long-press any request → copy all headers",
+    "home_token_label": "Diving-Fish Import Token",
+    "home_token_placeholder": "Generate from Diving-Fish profile settings page",
+    "home_sync_btn": "Start Sync",
+    "home_sync_stop": "Stop",
+    "home_status_ready": "Ready — fill in Cookie and Token then click Start Sync",
+    "home_status_validating": "Validating Cookie...",
+    "home_status_syncing": "Syncing scores...",
+    "home_status_done": "Sync complete! Updated {updates}, Created {creates}",
+    "home_status_failed": "Sync failed: {error}",
+
+    "settings_title": "Settings",
+
+    "about_ver": "v1.0 Stable",
+    "about_author_title": "About Author & Contact",
+    "about_author": "Developer: Limitime",
+    "about_desc": "Indie developer. Check out my projects on GitHub.",
+    "about_email": "Email: Daozhu1007@outlook.com",
+    "about_qq": "QQ: 869920298",
+    "about_warn1": "This software is free & open-source. If you paid for this, please request a refund.",
+    "about_warn2": "For personal use only. Do not use for profit or commercial purposes.",
+
+    "btn_github": "GitHub",
+    "btn_bilibili": "Bilibili",
+    "btn_qq": "QQ Group",
+    "btn_donate": "Sponsor",
+
+    "settings_language": "Language (界面语言)",
+    "settings_language_desc": "Select interface language (Requires restart)",
+    "settings_language_changed": "Language Changed",
+    "settings_language_restart": "Please restart the application for the language change to take effect"
+}
