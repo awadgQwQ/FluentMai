@@ -24,10 +24,10 @@ try {
         --clean `
         --windowed `
         --name FluentMai `
-        --add-data "assets;assets" `
-        --add-data "locales;locales" `
-        --add-data "config.json;." `
-        --add-data "THIRD_PARTY_NOTICES.md;." `
+        --add-data "$windowsRoot\assets;assets" `
+        --add-data "$windowsRoot\locales;locales" `
+        --add-data "$windowsRoot\config.json;." `
+        --add-data "$windowsRoot\THIRD_PARTY_NOTICES.md;." `
         --distpath $distRoot `
         --workpath $workRoot `
         --specpath $workRoot `
