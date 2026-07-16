@@ -62,8 +62,10 @@ def install_ca_current_user(info: CertificateInfo) -> CertificateInfo:
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("ca_installation_timeout") from exc
-    if result.returncode != 0 or not is_ca_installed(info.thumbprint):
-        raise RuntimeError(f"Current-user CA installation failed with exit code {result.returncode}.")
+    if result.returncode != 0:
+        raise RuntimeError("ca_installation_failed")
+    if not is_ca_installed(info.thumbprint):
+        raise RuntimeError("ca_installation_verification_failed")
     return CertificateInfo(
         certificate_path=info.certificate_path,
         combined_key_path=info.combined_key_path,
@@ -90,13 +92,16 @@ def remove_ca_current_user(info: CertificateInfo) -> bool:
 def is_ca_installed(thumbprint: str) -> bool:
     if os.name != "nt":
         return False
-    result = subprocess.run(
-        ["certutil", "-user", "-verifystore", "Root", thumbprint],
-        capture_output=True,
-        timeout=15,
-        check=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+    try:
+        result = subprocess.run(
+            ["certutil", "-user", "-verifystore", "Root", thumbprint],
+            capture_output=True,
+            timeout=15,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return False
     return result.returncode == 0
 
 

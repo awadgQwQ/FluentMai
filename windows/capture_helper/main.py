@@ -287,6 +287,8 @@ def _safe_error_category(exc: Exception) -> str:
         "authentication_expired",
         "wahlap_challenge_or_unexpected_page",
         "ca_installation_timeout",
+        "ca_installation_failed",
+        "ca_installation_verification_failed",
     }
     return text if text in allowed else type(exc).__name__
 

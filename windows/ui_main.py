@@ -122,3 +122,9 @@ class MainWindow(FluentWindow):
         )
 
         self.navigationInterface.expand()
+
+    def closeEvent(self, event):
+        if not self.home_interface.prepare_to_close():
+            event.ignore()
+            return
+        super().closeEvent(event)

@@ -63,6 +63,11 @@ if (-not (Test-Path -LiteralPath $helperExecutable -PathType Leaf)) {
     throw "Packaged capture helper not found: $helperExecutable"
 }
 
+$recoveryScriptsRoot = Join-Path $appRoot "scripts"
+New-Item -ItemType Directory -Force -Path $recoveryScriptsRoot | Out-Null
+Copy-Item -LiteralPath (Join-Path $windowsRoot "scripts\Restore-FluentMai-Network.ps1") -Destination $recoveryScriptsRoot -Force
+Copy-Item -LiteralPath (Join-Path $windowsRoot "scripts\Restore-FluentMai-Network.cmd") -Destination $recoveryScriptsRoot -Force
+
 # Keep a human-visible copy beside the executable as well as PyInstaller's
 # bundled copy so the portable archive exposes its current notice status.
 Copy-Item -LiteralPath (Join-Path $windowsRoot "THIRD_PARTY_NOTICES.md") -Destination $appRoot -Force

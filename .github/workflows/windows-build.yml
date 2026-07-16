@@ -75,6 +75,12 @@ jobs:
           }
           python scripts/windows/smoke_capture_helper.py --helper $helper
           Get-FileHash -LiteralPath $helper -Algorithm SHA256
+          foreach ($name in @("Restore-FluentMai-Network.cmd", "Restore-FluentMai-Network.ps1")) {
+            $path = Join-Path "build/windows/dist/FluentMai/scripts" $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Packaged network recovery script is missing: $name"
+            }
+          }
 
       - name: Audit portable artifact contents
         shell: pwsh

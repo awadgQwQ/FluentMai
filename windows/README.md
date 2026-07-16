@@ -75,7 +75,7 @@ The build includes application code, `assets/`, `locales/`, the default non-secr
 
 ## Known limitations
 
-- The automatic capture backend and packaged helper are implemented and mock-validated, but the one-click UI is not wired yet. Real-device validation stopped safely at the required Windows current-user root-certificate trust confirmation; no CA was installed and no score was imported at that checkpoint.
+- The automatic capture backend, packaged helper, one-click import worker, cancellation path, startup crash recovery, and close-time recovery wait are implemented and mock-validated. Real-device validation still stops safely at the required Windows current-user root-certificate trust confirmation; no CA was installed and no score was imported at that checkpoint.
 - The manual Wahlap flow still needs broader real-account validation.
 - The upload business layer exists, but the upload UI is not fully wired.
 - The legacy dashboard still depends on public third-party player data; local scores are the source of truth for the newer local pages.

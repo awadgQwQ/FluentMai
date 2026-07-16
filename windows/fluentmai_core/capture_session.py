@@ -285,6 +285,20 @@ def _free_loopback_port() -> int:
 def _stop_process(process: subprocess.Popen | None) -> None:
     if process is None or process.poll() is not None:
         return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        return
     process.terminate()
     try:
         process.wait(timeout=5)
@@ -300,7 +314,7 @@ def focus_wechat_window() -> bool:
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32
-    candidates: list[tuple[int, int]] = []
+    candidates: list[tuple[int, int, int]] = []
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def callback(hwnd, _lparam):
@@ -311,17 +325,19 @@ def focus_wechat_window() -> bool:
             return True
         title = ctypes.create_unicode_buffer(length + 1)
         user32.GetWindowTextW(hwnd, title, length + 1)
-        if title.value.strip() not in {"微信", "WeChat", "Weixin"}:
+        normalized_title = title.value.strip()
+        priority = 1 if normalized_title in {"舞萌 | 中二", "舞萌｜中二"} else 0
+        if priority == 0 and normalized_title not in {"微信", "WeChat", "Weixin"}:
             return True
         rect = wintypes.RECT()
         if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
             area = max(0, rect.right - rect.left) * max(0, rect.bottom - rect.top)
-            candidates.append((area, int(hwnd)))
+            candidates.append((priority, area, int(hwnd)))
         return True
 
     user32.EnumWindows(callback, 0)
     if not candidates:
         return False
-    _area, hwnd = max(candidates)
+    _priority, _area, hwnd = max(candidates)
     user32.ShowWindow(hwnd, 9)
     return bool(user32.SetForegroundWindow(hwnd))

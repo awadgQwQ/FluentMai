@@ -238,7 +238,7 @@ Gaps against Windows 2.0:
 | `python -m pytest -q windows/tests` | 0 | 38 passed, 0 failed, 0 errors, 0 skipped; 6.06 s |
 | `python -m compileall -q -f windows scripts/windows` | 0 | completed |
 | `.\\scripts\\windows\\smoke_test.ps1 -Mode source` | 0 | source window constructed/shown and exited; 4,716.5 ms measured wrapper time |
-| `python -m pytest -q windows/tests` | 0 | 63 passed; capture/helper/recovery/rating additions included |
+| `python -m pytest -q windows/tests` | 0 | 70 passed; capture/helper/recovery/rating/UI lifecycle additions included |
 | `python -m compileall -q windows` | 0 | completed after P0 foundation changes |
 | `.\\scripts\\windows\\build_portable.ps1` | 0 | main app and `FluentMaiCaptureProxy.exe` built; forbidden artifact count 0 |
 | `.\\scripts\\windows\\smoke_test.ps1 -Mode package` | 0 | packaged main window constructed/shown and exited |
@@ -261,8 +261,7 @@ Gaps against Windows 2.0:
 1. The user must explicitly accept the Windows trust prompt for `FluentMai Local Capture CA`; do not resume proxy activation until that human action is available.
 2. Retry the first real WeChat import from the already-validated service-account path, then verify AppData SQLite counts, B35/B15/Rating, restart persistence, and exact network restoration.
 3. Repeat the real import and verify zero duplicate scores/Rating-history rows plus exact restoration again.
-4. Wire the validated backend into a cancellable UI worker with an explicit CA disclosure/confirmation step.
-5. Continue the window/DPI checkpoint only after the real P0 loop passes.
+4. Continue the window/DPI checkpoint only after the real P0 loop passes.
 
 ## P0 foundation checkpoint evidence
 
@@ -274,3 +273,6 @@ Gaps against Windows 2.0:
 - Real WeChat UI navigation reached the official `舞萌 | 中二` service-account `我的记录 -> 舞萌DX` entry using window-relative coordinates after accessibility discovery showed the Qt canvas exposes no actionable UIA controls.
 - The first real capture failed during CA preparation with `ca_installation_timeout`; the helper never announced ready, proxy activation never occurred, local score/import-batch counts stayed zero, the CA remained uninstalled, and the database stayed healthy.
 - A residual `certutil` process from the confirmation wait was terminated after verifying its exact system image path. Final helper count is zero, the recovery journal is absent, and final WinINET/WinHTTP fingerprints match preflight.
+- The import center now exposes one high-contrast primary action plus a fixed cancel/recover action, requires explicit CA/proxy consent, runs capture off the UI thread, reports only safe stage metadata, and distinguishes verified restoration from an unverified restoration error.
+- Application startup consumes a protected pending journal before creating the main window; close waits for capture cancellation and restoration. The portable archive exposes both double-click recovery scripts beside the application.
+- A read-only UI render confirmed the P0 controls are visible. It also measured the still-unfixed top-level height at 1,344 px, so the separate window/DPI checkpoint remains mandatory after real P0.
