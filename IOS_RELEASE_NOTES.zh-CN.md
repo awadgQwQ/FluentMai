@@ -6,7 +6,7 @@
 
 - 下载文件是 **unsigned IPA**，需要测试者用自己的 Apple Account 自行签名；不能直接点击安装。
 - 当前没有 App Store 或 TestFlight 分发。
-- 请按 [`IOS_SIDELOAD_GUIDE.zh-CN.md`](https://github.com/Daozhu1007/FluentMai-Android/releases/download/v0.2.0-ios-alpha.1/IOS_SIDELOAD_GUIDE.zh-CN.md) 操作，不要使用来源不明的在线签名网站。
+- 请按 [`IOS_SIDELOAD_GUIDE.zh-CN.md`](https://github.com/Daozhu1007/FluentMai/releases/download/v0.2.0-ios-alpha.1/IOS_SIDELOAD_GUIDE.zh-CN.md) 操作，不要使用来源不明的在线签名网站。
 - 本包已通过 macOS GitHub Actions 的 `iphoneos`、`iosArm64`、generic iOS device Release 构建和静态验证。
 - `realDeviceInstallVerified` 仍为 `false`：发布前没有把静态验证虚报成真实 iPhone 安装成功。
 - 卸载可能删除 iOS 本地成绩、别名和趋势数据。

@@ -1,0 +1,68 @@
+param(
+    [string]$Python = "python"
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$windowsRoot = Join-Path $repoRoot "windows"
+$outputRoot = Join-Path $repoRoot "build\windows"
+$distRoot = Join-Path $outputRoot "dist"
+$workRoot = Join-Path $outputRoot "work"
+$appRoot = Join-Path $distRoot "FluentMai"
+$archivePath = Join-Path $outputRoot "FluentMai-windows-portable.zip"
+$checksumPath = "$archivePath.sha256"
+
+New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+
+Push-Location $windowsRoot
+try {
+    & $Python -m PyInstaller `
+        --noconfirm `
+        --clean `
+        --windowed `
+        --name FluentMai `
+        --add-data "assets;assets" `
+        --add-data "locales;locales" `
+        --add-data "config.json;." `
+        --add-data "THIRD_PARTY_NOTICES.md;." `
+        --distpath $distRoot `
+        --workpath $workRoot `
+        main.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "PyInstaller exited with code $LASTEXITCODE"
+    }
+}
+finally {
+    Pop-Location
+}
+
+$executable = Join-Path $appRoot "FluentMai.exe"
+if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+    throw "Packaged executable not found: $executable"
+}
+
+# Keep a human-visible copy beside the executable as well as PyInstaller's
+# bundled copy so the portable archive exposes its current notice status.
+Copy-Item -LiteralPath (Join-Path $windowsRoot "THIRD_PARTY_NOTICES.md") -Destination $appRoot -Force
+
+$forbidden = Get-ChildItem -LiteralPath $appRoot -Recurse -File | Where-Object {
+    $_.Name -match '(?i)(\.db(?:-shm|-wal)?$|\.sqlite3?$|\.html?$|\.log$|^\.env(?:\.|$)|private[_-]?key|credentials?)'
+}
+if ($forbidden) {
+    $paths = ($forbidden | Select-Object -ExpandProperty FullName) -join [Environment]::NewLine
+    throw "Forbidden files found in portable directory:$([Environment]::NewLine)$paths"
+}
+
+if (Test-Path -LiteralPath (Join-Path $appRoot "assets\jackets")) {
+    throw "Jacket artwork must not be bundled in the Windows artifact"
+}
+
+Compress-Archive -Path (Join-Path $appRoot "*") -DestinationPath $archivePath -CompressionLevel Optimal -Force
+$hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+Set-Content -LiteralPath $checksumPath -Encoding ascii -Value "$hash  $([IO.Path]::GetFileName($archivePath))"
+
+Write-Output "WINDOWS_PORTABLE_DIR=$appRoot"
+Write-Output "WINDOWS_PORTABLE_ARCHIVE=$archivePath"
+Write-Output "WINDOWS_PORTABLE_SHA256=$hash"

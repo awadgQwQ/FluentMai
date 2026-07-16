@@ -2,141 +2,98 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-FluentMai is an unofficial Android, local-first score companion for players of the mainland China version of maimai DX. It is currently a public Beta, supports Android 8.0 and later, and is not affiliated with or endorsed by SEGA, Wahlap, Diving Fish, or LXNS.
+| Platform | Status | Download | Notes |
+| --- | --- | --- | --- |
+| Android | Beta | [Android Release](https://github.com/Daozhu1007/FluentMai/releases/tag/v0.2.0-beta) | Primary maintained platform |
+| iOS | Experimental Alpha | [unsigned IPA](https://github.com/Daozhu1007/FluentMai/releases/tag/v0.2.0-ios-alpha.1) | User self-signing required; iOS 17+ |
+| Windows | Alpha / Development | Source only | Independent desktop implementation under `windows/` |
 
-- [Download FluentMai v0.2.0 Beta](https://github.com/Daozhu1007/FluentMai-Android/releases/tag/v0.2.0-beta)
-- [Privacy model](docs/PRIVACY_MODEL.md)
-- [Product scope](docs/PRODUCT_SCOPE.md)
-- [Changelog](CHANGELOG.md)
+FluentMai is an unofficial, local-first score companion for players of the mainland China version of maimai DX. This product repository carries three independent platform implementations. Android is currently the most mature platform; iOS and Windows remain experimental.
 
-## About the project
+The platforms do not promise identical features, storage formats, or release dates. Android and iOS share selected Kotlin Multiplatform domain code in `core/model`; Windows remains a separate Python/PyQt6 application. Android data migration and Room schema guarantees do not apply to iOS or Windows.
 
-FluentMai brings the score-import and analysis workflow onto the player's own Android device. Valid imported scores are stored in a local Room database and are used for browsing, B35/B15, Rating, statistics, plate progress, trends, and recommendations. Uploading to a supported community service is optional and always initiated by the user.
+## Platform guides
 
-Android is the maintained and released platform. The repository also contains experimental iOS and Kotlin Multiplatform work, but there is no installable iOS release for general users.
+- [Android](docs/platforms/android.md) — Kotlin, Jetpack Compose, Room, and the current public Beta.
+- [iOS](docs/platforms/ios.md) — SwiftUI with the KMP domain layer and a real unsigned `iphoneos arm64` IPA for self-signing.
+- [Windows](docs/platforms/windows.md) — the independent PyQt6 desktop codebase, currently source-only.
 
-## Key features
+## Product scope
 
-- Import from Wahlap through the local Hook flow, with a manual fallback when needed.
-- Validate imported records, deduplicate stable SD/DX chart identities, keep valid scores in Room, and isolate suspicious records in quarantine.
-- Calculate DX Rating and the correct old-version B35/current-version B15, without treating future content batches as the current major version.
-- Browse the complete catalog through one unified chart browser and open the same chart detail view from B50, search, plate, and recommendation flows.
-- Search by title, community alias, song ID, BPM, artist, or chart designer, with offline Simplified/Traditional Chinese normalization.
-- Combine difficulty, major version, category, chart-constant range, play status, achievement range/rank, FC, FS, and SD/DX filters.
-- Review player score statistics and data-driven plate progress, including explicit “insufficient data” states.
-- Use a single-chart Rating calculator, a version-name reference, and an achievement/loss calculator that reads note counts from a selected chart while retaining manual input.
-- Track real Rating history and generate explainable improvement suggestions by simulating B35/B15 changes; recommendations are deterministic calculations, not skill predictions.
-- Optionally upload local scores to Diving Fish or LXNS.
-- Use responsive phone-landscape and tablet layouts with a shared Android feature set.
-- Keep new upload tokens and raw Wahlap import pages in the current session only; they are not newly persisted.
+Across the product, FluentMai focuses on importing, validating, browsing, and analyzing score data locally. Platform capabilities currently differ:
 
-## Screenshots
+- Android provides the broadest feature set: Wahlap import, Room persistence, quarantine, B35/B15 and Rating analysis, chart search, plate progress, trends, recommendations, and optional user-triggered uploads.
+- iOS is an experimental SwiftUI client backed by the shared KMP score/Rating domain layer. Its unsigned IPA is a real device build, but it must be signed by the user before installation.
+- Windows provides an independent local SQLite database, manual import flows, score and chart browsing, catalog caches, and a PyQt6 desktop UI. It does not share Android's database or migration path.
 
-| Home B50 | Unified chart browser | Chart detail |
-| --- | --- | --- |
-| <img src="docs/screenshots/home-b50.png" width="260" alt="FluentMai home B50"> | <img src="docs/screenshots/chart-browser.png" width="260" alt="Unified chart browser"> | <img src="docs/screenshots/chart-detail.png" width="260" alt="Unified chart detail"> |
+See [Product Scope](docs/PRODUCT_SCOPE.md), [Privacy Model](docs/PRIVACY_MODEL.md), and [Third-Party Notices](THIRD_PARTY_NOTICES.md) for the detailed boundaries.
 
-| Plate progress | Note-loss calculator |
-| --- | --- |
-| <img src="docs/screenshots/plate-progress.png" width="260" alt="Data-driven plate progress"> | <img src="docs/screenshots/note-calculator.png" width="260" alt="Chart note-loss calculator"> |
+## Releases
 
-Screenshots show local test data. Authentication URLs, tokens, cookies, and raw imported pages are deliberately excluded.
+Existing releases remain unchanged:
 
-## Download and installation
+- `v0.2.0-beta` — Android Beta, distributed as a debug-signed test APK.
+- `v0.2.0-ios-alpha.1` — iOS Experimental Preview, distributed as an unsigned `iphoneos arm64` IPA.
+- Windows does not yet have a public release. CI artifacts are development evidence, not a Windows release.
 
-FluentMai supports Android 8.0 or later (`minSdk 26`) and currently targets Android 14 (`targetSdk 34`).
+Future platform-specific tags use these forms:
 
-1. Open the [GitHub Release for v0.2.0 Beta](https://github.com/Daozhu1007/FluentMai-Android/releases/tag/v0.2.0-beta).
-2. Download `FluentMai-v0.2.0-beta-android.apk`.
-3. Install it over the existing app. Do not uninstall or clear app data when upgrading.
-4. If prompted, allow APK installation for the browser or file manager you used.
+- `vX.Y.Z-android-beta.N`
+- `vX.Y.Z-ios-alpha.N`
+- `vX.Y.Z-windows-alpha.N`
 
-The v0.2.0 Beta asset is a debug-signed test build because this repository does not contain a trusted release keystore or automated Android release-signing workflow. It is intended for Beta testing, not as a stable production release.
+Each platform follows an independent release cycle. A shared tag should be considered only if versions and features genuinely become synchronized.
 
-## Quick start
+## Repository layout
 
-1. Open FluentMai and use the Import tab.
-2. Try the Wahlap Hook flow first; use the manual fallback if the upstream flow requires it.
-3. Review the import summary and any quarantined records.
-4. Check B35/B15 on Home, or use Charts for search, filters, statistics, plate progress, and unified details.
-5. Open Tools for Rating, note-loss/achievement, version reference, Rating Trend, and explainable improvement suggestions.
-6. Enter a Diving Fish or LXNS token only when you choose to upload. Tokens are session-only and must not be shared in issues or logs.
+- `app/`, `feature/`, and most `core/` modules — Android application and its Kotlin domain/data layers.
+- `core/model/` — Kotlin Multiplatform domain code shared by Android and iOS.
+- `iosApp/` — experimental SwiftUI application.
+- `windows/` — independent Python/PyQt6 Windows application.
+- `scripts/ios/` and `scripts/windows/` — platform build and validation helpers.
+- `docs/platforms/` — per-platform status, setup, build, and limitation notes.
+- `.github/workflows/` — path-isolated Android, iOS, and Windows validation.
 
-## Data and privacy
+## Build and test
 
-- The local Room database is the source of truth for imported Android score data.
-- New upload tokens, full authentication URLs, and raw Wahlap pages are not written to Room or ordinary app storage. Tokens and raw pages exist only for the active session/request flow.
-- Import validation, conservative matching, deduplication, and quarantine prevent suspicious records from silently replacing valid results.
-- Diagnostic text is redacted before display or logging. External upload responses are treated as untrusted text.
-- Diving Fish and LXNS uploads are optional and user-triggered.
-- Upgrading does not proactively delete token/page caches that may already exist from an older FluentMai build. The current version stops creating new persistent copies without silently destroying prior app data.
-
-See [Privacy Model](docs/PRIVACY_MODEL.md) and [Import Pipeline](docs/IMPORT_PIPELINE.md) for the detailed boundaries.
-
-## Current limitations
-
-- Upstream Wahlap pages and third-party APIs can change; import or upload may require a future FluentMai update.
-- Kaleid×Scope has a model and unavailable-state UI, but no complete, auditable gate/song data source is connected. FluentMai does not invent this data.
-- This is Beta software and may still have UI issues or device-specific compatibility problems. Not every Android device has been verified.
-- Community aliases depend on validated runtime sources and may be incomplete or temporarily unavailable; ordinary catalog search remains usable.
-- Improvement suggestions are mathematical B35/B15 simulations, not predictions of player skill or chart fit.
-- Users should retain an external backup of important score data, especially before third-party rebuild or sync operations.
-
-## Android build
-
-Requirements:
-
-- Android SDK with API 34 build support.
-- JDK 17 or a compatible JDK capable of targeting Java 17.
-- `local.properties` containing `sdk.dir`, or a configured `ANDROID_HOME` / `ANDROID_SDK_ROOT`.
-
-Windows:
+Android on Windows:
 
 ```powershell
 .\gradlew.bat test
 .\gradlew.bat :app:assembleDebug
 ```
 
-Unix/macOS:
+iOS requires macOS, Xcode, JDK 17, and XcodeGen. See [the iOS platform guide](docs/platforms/ios.md).
 
-```sh
-./gradlew test
-./gradlew :app:assembleDebug
+Windows:
+
+```powershell
+python -m pip install -r windows/requirements.txt
+python -m pytest -q windows/tests
+.\scripts\windows\smoke_test.ps1 -Mode source
+.\scripts\windows\build_portable.ps1
 ```
 
-The Android app uses Kotlin, Jetpack Compose, Room, coroutines, Ktor, and a modular Gradle project. Release signing credentials are intentionally not stored in the repository.
+Detailed Windows commands and known limitations are in [windows/README.md](windows/README.md).
 
-## iOS current status
+## Screenshots
 
-- The repository contains an experimental iOS MVP and a Kotlin Multiplatform shared domain layer.
-- iOS has not reached a formal release.
-- There is currently no iOS Release that general users can install directly.
-- iOS builds and physical-device verification are still in progress.
-- Android is the currently maintained and released platform.
+The current screenshots show the Android Beta and local synthetic/test data.
 
-See [IOS_TESTING.md](IOS_TESTING.md) only if you are a developer testing the experimental MVP on a Mac. iOS is intentionally not listed as a primary download.
+| Home B50 | Unified chart browser | Chart detail |
+| --- | --- | --- |
+| <img src="docs/screenshots/home-b50.png" width="260" alt="FluentMai Android home B50"> | <img src="docs/screenshots/chart-browser.png" width="260" alt="FluentMai Android chart browser"> | <img src="docs/screenshots/chart-detail.png" width="260" alt="FluentMai Android chart detail"> |
 
-## Project structure
+Authentication URLs, tokens, cookies, raw imported pages, databases, logs, and user score data are deliberately excluded from the repository.
 
-- `app` — Android entry point, navigation, platform networking, and Hook integration.
-- `core/model` — shared score, Rating, version, plate, toolbox, and recommendation domain logic; also the Kotlin Multiplatform domain layer.
-- `core/importer` — Wahlap parsing, public catalog handling, validation, and import pipeline.
-- `core/database` — Android Room schema, migrations, DAOs, and repositories.
-- `core/privacy` — redaction helpers for diagnostics.
-- `core/exporter` and `core/upload` — upload payloads and optional Diving Fish/LXNS flows.
-- `feature/home`, `feature/import`, `feature/scores`, `feature/quarantine`, `feature/settings`, `feature/tools` — Android Compose features.
-- `iosApp` — experimental SwiftUI MVP; not part of the Android Release.
-- `fixtures` — bundled public or synthetic fallback/test data.
-- `docs` — data contracts, privacy, import, plate, alias, toolbox, and recommendation notes.
+## Privacy and security
 
-## Third-party data and acknowledgements
-
-FluentMai uses public catalog/version metadata and documented APIs from LXNS, optional upload interfaces from Diving Fish and LXNS, community alias data fetched at runtime from LXNS and YuzuChaN, and public SEGA rules/pages as references for scoring and plate semantics. Alias data is validated and cached privately for local search; the repository does not redistribute a copied community alias database.
-
-MaiproberPlus, EasyMai, maimai.py, and other community projects were useful read-only implementation or behavior references where documented. Mentioning a project does not imply partnership, endorsement, or an official relationship. Dependency notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- Never commit real Cookies, Authorization headers, Import Tokens, LXNS tokens, full authentication URLs, raw Wahlap HTML, user databases, or diagnostic dumps.
+- Android and Windows use separate local databases; no cross-platform migration guarantee currently exists.
+- Uploads to supported community services are optional and user-triggered.
+- Release signing credentials, certificates, and passwords are not stored in this repository.
+- Unlicensed game artwork is not bundled with the Windows source or CI artifact; covers are resolved from user cache or runtime providers.
 
 ## Disclaimer
 
-FluentMai is an independent, unofficial fan-made tool for the mainland China version of maimai DX. It is not affiliated with, authorized by, or endorsed by SEGA, Wahlap, Diving Fish, LXNS, RankHub, EasyMai, or their operators. All game names, artwork, music metadata, and trademarks belong to their respective owners.
-
-Use the app and third-party upload services at your own risk. Upstream changes can break imports or synchronization, and important data should be backed up outside the app.
+FluentMai is an independent, unofficial fan-made tool. It is not affiliated with, authorized by, or endorsed by SEGA, Wahlap, Diving Fish, LXNS, or their operators. Game names, artwork, music metadata, and trademarks belong to their respective owners. Upstream services can change without notice; keep independent backups of important data.

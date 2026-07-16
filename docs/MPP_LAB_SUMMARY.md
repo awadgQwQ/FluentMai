@@ -1,6 +1,6 @@
 # MPP-Lab Summary
 
-MPP-Lab local path: `D:\Code\MaiproberPlus`
+MPP-Lab source: local read-only MaiproberPlus reference checkout
 
 Final verified commit: `bf4a6e179758ffa9cde89ec099ac9afd90dd07fa`
 
@@ -20,4 +20,3 @@ Verified results:
 - Privacy log scan found no raw HTML, Cookie, Token, full authentication URL, or input value leakage.
 
 MPP-Lab is not the FluentMai Android product base. It must remain read-only for this task and must not be modified, committed to, repaired, or turned into a direct FluentMai Android fork.
-

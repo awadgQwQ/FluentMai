@@ -19,7 +19,15 @@ import requests
 # ---------------------------------------------------------------------------
 
 API_URL = "https://www.diving-fish.com/api/maimaidxprober/music_data"
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maimai_data.db")
+
+
+def default_db_path() -> str:
+    return os.environ.get("FLUENTMAI_DB_PATH") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "maimai_data.db"
+    )
+
+
+DB_PATH = default_db_path()
 REQUEST_TIMEOUT = 30  # 秒
 
 # 难度标签（按 ds / level 数组索引顺序）

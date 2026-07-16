@@ -13,9 +13,11 @@ on:
       - "core/model/**"
       - "fixtures/lxns_song_list_fallback.json"
       - "iosApp/**"
+      - "scripts/ios/**"
   push:
     branches:
       - master
+      - "chore/**"
       - "codex/**"
       - ios/level1-validation
     paths:
@@ -27,6 +29,7 @@ on:
       - "core/model/**"
       - "fixtures/lxns_song_list_fallback.json"
       - "iosApp/**"
+      - "scripts/ios/**"
 
 permissions:
   contents: read

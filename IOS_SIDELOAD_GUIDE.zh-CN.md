@@ -6,7 +6,7 @@
 
 ## 1. 下载正确文件
 
-打开 [FluentMai iOS Experimental Preview 0.2.0-alpha.1](https://github.com/Daozhu1007/FluentMai-Android/releases/tag/v0.2.0-ios-alpha.1)，在 Assets 中下载：
+打开 [FluentMai iOS Experimental Preview 0.2.0-alpha.1](https://github.com/Daozhu1007/FluentMai/releases/tag/v0.2.0-ios-alpha.1)，在 Assets 中下载：
 
 - `FluentMai-v0.2.0-ios-alpha.1-unsigned.ipa`：要安装的正式命名文件；
 - `SHA256SUMS.txt`：校验值；

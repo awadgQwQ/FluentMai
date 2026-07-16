@@ -1,6 +1,6 @@
 # Third Party Notices
 
-This Phase 0 skeleton uses open source Android and Kotlin dependencies.
+This product repository uses open source dependencies across its Android, iOS/KMP, and Windows implementations. Each packaged platform must satisfy the licenses and notices for the exact dependencies included in that artifact.
 
 ## Android Gradle Plugin
 
@@ -37,3 +37,9 @@ Version 1.14.0 supplies the offline Traditional/Simplified Chinese character and
 ## MaiproberPlus / MPP-Lab
 
 MaiproberPlus was inspected only as a read-only technical validation reference for this phase. No large MaiproberPlus modules were copied into FluentMai Android Phase 0.
+
+## Windows dependencies
+
+The independent Windows implementation uses PyQt6, Qt 6, PyQt6-Fluent-Widgets, requests, Beautiful Soup, PyInstaller, Python, and transitive runtime packages. See [windows/THIRD_PARTY_NOTICES.md](windows/THIRD_PARTY_NOTICES.md).
+
+The repository does not bundle Windows jacket artwork. A public Windows release remains blocked until a project-level license is declared and the complete packaged dependency/license inventory is reviewed.

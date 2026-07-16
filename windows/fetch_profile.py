@@ -22,7 +22,13 @@ else:
 
 API_QUERY_PLAYER = "https://www.diving-fish.com/api/maimaidxprober/query/player"
 HTTP_TIMEOUT = 15
-DB_PATH = os.path.join(BASE_DIR, "maimai_data.db")
+
+
+def default_db_path() -> str:
+    return os.environ.get("FLUENTMAI_DB_PATH") or os.path.join(BASE_DIR, "maimai_data.db")
+
+
+DB_PATH = default_db_path()
 
 logger = logging.getLogger("fetch_profile")
 

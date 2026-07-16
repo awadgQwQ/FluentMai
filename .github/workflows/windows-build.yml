@@ -1,0 +1,94 @@
+name: Windows build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-build.yml"
+      - "windows/**"
+      - "scripts/windows/**"
+  push:
+    branches:
+      - master
+      - "chore/**"
+    paths:
+      - ".github/workflows/windows-build.yml"
+      - "windows/**"
+      - "scripts/windows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-smoke:
+    name: Test, package, and smoke test
+    runs-on: windows-2025
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: windows/requirements.txt
+
+      - name: Install Windows dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r windows/requirements.txt
+
+      - name: Run Windows tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q windows/tests
+
+      - name: Compile Python sources
+        shell: pwsh
+        run: python -m compileall -q -f windows scripts/windows
+
+      - name: Smoke test source application
+        shell: pwsh
+        run: .\scripts\windows\smoke_test.ps1 -Mode source
+
+      - name: Build portable application
+        shell: pwsh
+        run: .\scripts\windows\build_portable.ps1
+
+      - name: Smoke test packaged application
+        shell: pwsh
+        run: .\scripts\windows\smoke_test.ps1 -Mode package
+
+      - name: Audit portable artifact contents
+        shell: pwsh
+        run: |
+          $root = Resolve-Path "build/windows/dist/FluentMai"
+          $forbidden = Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
+            $_.Name -match '(?i)(\.db(?:-shm|-wal)?$|\.sqlite3?$|\.html?$|\.log$|^\.env(?:\.|$)|private[_-]?key|credentials?)'
+          }
+          if ($forbidden) {
+            $forbidden | Select-Object -ExpandProperty FullName
+            throw "Forbidden data found in Windows artifact"
+          }
+          if (Test-Path -LiteralPath (Join-Path $root "assets/jackets")) {
+            throw "Windows artifact contains jacket artwork"
+          }
+          Get-FileHash "build/windows/FluentMai-windows-portable.zip" -Algorithm SHA256
+
+      - name: Upload Windows development artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: fluentmai-windows-portable-${{ github.run_number }}
+          path: |
+            build/windows/FluentMai-windows-portable.zip
+            build/windows/FluentMai-windows-portable.zip.sha256
+            windows/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+          retention-days: 14

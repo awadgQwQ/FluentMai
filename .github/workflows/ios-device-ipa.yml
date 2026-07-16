@@ -2,13 +2,28 @@ name: iOS Device unsigned IPA
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/ios-device-ipa.yml"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "core/model/**"
+      - "fixtures/lxns_song_list_fallback.json"
+      - "iosApp/**"
+      - "scripts/ios/**"
   push:
     branches:
+      - master
+      - "chore/**"
       - ios/device-ipa
     paths:
       - ".github/workflows/ios-device-ipa.yml"
       - "build.gradle.kts"
       - "settings.gradle.kts"
+      - "gradle.properties"
       - "gradle/**"
       - "gradlew"
       - "core/model/**"

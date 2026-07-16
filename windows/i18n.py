@@ -8,9 +8,14 @@ import os
 import json
 
 if getattr(sys, 'frozen', False):
-    app_dir = os.path.dirname(sys.executable)
+    resource_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    config_dir = os.path.dirname(sys.executable)
 else:
-    app_dir = os.path.dirname(os.path.abspath(__file__))
+    resource_dir = os.path.dirname(os.path.abspath(__file__))
+    config_dir = resource_dir
+
+# Kept for compatibility with code that imports the historical name.
+app_dir = resource_dir
 
 
 class I18nManager:
@@ -20,7 +25,7 @@ class I18nManager:
         self.load_language()
 
     def load_language(self):
-        lang_file = os.path.join(app_dir, "locales", f"{self.locale}.json")
+        lang_file = os.path.join(resource_dir, "locales", f"{self.locale}.json")
         try:
             if os.path.exists(lang_file):
                 with open(lang_file, 'r', encoding='utf-8') as f:
@@ -46,16 +51,21 @@ class I18nManager:
 
 
 def _load_config():
-    config_path = os.path.join(app_dir, "config.json")
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    paths = [os.path.join(config_dir, "config.json")]
+    bundled_path = os.path.join(resource_dir, "config.json")
+    if bundled_path not in paths:
+        paths.append(bundled_path)
+    for config_path in paths:
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            continue
+    return {}
 
 
 def save_config(config):
-    config_path = os.path.join(app_dir, "config.json")
+    config_path = os.path.join(config_dir, "config.json")
     try:
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=4, ensure_ascii=False)

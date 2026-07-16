@@ -67,7 +67,7 @@
 结论：冷启动不是主要矛盾。主要问题是首次进入谱面时 ViewModel/索引冷建、catalog/alias 多阶段串行刷新和整页等待；筛选器则有同步大布局。目标是“触点立即反馈、内容增量就绪”，不是用假的延时动画掩盖工作。
 
 录屏与截图证据保存在：
-`C:\Users\Daozh\.codex\visualizations\2026\07\14\019f62d9-6346-7910-b49a-41ee6d4abd26\android-convergence`。
+`<local-evidence>/android-convergence`。
 
 ## 重复实现审计
 
