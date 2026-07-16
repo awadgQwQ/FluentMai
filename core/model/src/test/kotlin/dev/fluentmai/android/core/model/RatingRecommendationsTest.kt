@@ -2,6 +2,7 @@ package dev.fluentmai.android.core.model
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -121,13 +122,15 @@ class RatingRecommendationsTest {
         assertEquals(first, second)
     }
 
-    @Test(expected = IllegalArgumentException::class)
+    @Test
     fun invalidConstantRangeIsRejected() {
-        buildRatingRecommendations(
-            records = listOf(playerRecord(1, chartVersion = 25_500, constant = 13.5, achievement = 99.0)),
-            currentVersion = currentVersion(),
-            filters = RatingRecommendationFilters(constantMin = 14.0, constantMax = 13.0),
-        )
+        assertFailsWith<IllegalArgumentException> {
+            buildRatingRecommendations(
+                records = listOf(playerRecord(1, chartVersion = 25_500, constant = 13.5, achievement = 99.0)),
+                currentVersion = currentVersion(),
+                filters = RatingRecommendationFilters(constantMin = 14.0, constantMax = 13.0),
+            )
+        }
     }
 
     private fun currentVersion(): MaimaiCurrentVersion =

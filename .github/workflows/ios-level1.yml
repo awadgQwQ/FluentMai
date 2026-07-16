@@ -17,6 +17,7 @@ on:
     branches:
       - master
       - "codex/**"
+      - ios/level1-validation
     paths:
       - ".github/workflows/ios-level1.yml"
       - "build.gradle.kts"
@@ -92,6 +93,14 @@ jobs:
           xcrun simctl boot "$SIMULATOR_UDID" || true
           xcrun simctl bootstatus "$SIMULATOR_UDID" -b
           xcrun simctl list devices | tee build/ios-ci/simulators.log
+
+      - name: Test shared Kotlin domain on iOS
+        run: |
+          set -o pipefail
+          ./gradlew \
+            :core:model:iosSimulatorArm64Test \
+            --stacktrace --console=plain \
+            2>&1 | tee build/ios-ci/ios-shared-tests.log
 
       - name: Build unsigned iOS Simulator app
         run: |
