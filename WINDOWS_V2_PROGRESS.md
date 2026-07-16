@@ -6,12 +6,12 @@ This is the single working report for the Windows 2.0 product update. It must no
 
 ## Status
 
-- Phase: baseline audit and recovery design
+- Phase: P0 capture foundation checkpoint; paused at required human CA trust confirmation
 - Branch: `feat/windows-product-parity`
 - Starting commit: `6fff45d5b7f85b358e2e05a249632010417ec55b`
 - Current release decision: development may continue; public Windows release is blocked pending a project-license/Qt binding decision and complete packaged-license verification
-- P0 status: not complete at baseline. The legacy database has no locally imported score records.
-- System network changes made by this task so far: none
+- P0 status: backend/mock loop is complete, but the first real import is not complete. The first real attempt stopped before proxy activation because current-user root CA installation required human confirmation.
+- System network changes made by this task so far: the real attempt did not reach proxy activation. Final WinINET/WinHTTP fingerprints equal the preflight baseline; no recovery journal or helper remains.
 - Third-party uploads made by this task so far: none
 
 ## Git baseline
@@ -238,10 +238,15 @@ Gaps against Windows 2.0:
 | `python -m pytest -q windows/tests` | 0 | 38 passed, 0 failed, 0 errors, 0 skipped; 6.06 s |
 | `python -m compileall -q -f windows scripts/windows` | 0 | completed |
 | `.\\scripts\\windows\\smoke_test.ps1 -Mode source` | 0 | source window constructed/shown and exited; 4,716.5 ms measured wrapper time |
+| `python -m pytest -q windows/tests` | 0 | 63 passed; capture/helper/recovery/rating additions included |
+| `python -m compileall -q windows` | 0 | completed after P0 foundation changes |
+| `.\\scripts\\windows\\build_portable.ps1` | 0 | main app and `FluentMaiCaptureProxy.exe` built; forbidden artifact count 0 |
+| `.\\scripts\\windows\\smoke_test.ps1 -Mode package` | 0 | packaged main window constructed/shown and exited |
+| packaged helper IPC smoke | 0 | helper reached ready state without CA installation, timed out finitely, and restored the simulated proxy exactly |
 
 ## Checkpoints
 
-- [ ] `chore: establish Windows v2 baseline`
+- [x] `chore: establish Windows v2 baseline`
 - [ ] `feat: integrate local Wahlap capture pipeline`
 - [ ] `fix: make Windows shell responsive and DPI safe`
 - [ ] `feat: reach Android feature parity on Windows`
@@ -253,8 +258,19 @@ Gaps against Windows 2.0:
 
 ## Immediate next work
 
-1. Add the ignored/protected recovery journal plus double-click network restore scripts and tests.
-2. Establish an AppData data path and non-destructive legacy migration with schema versioning and migration tests.
-3. Implement a FluentMai-owned MIT-attributed capture helper and authenticated loopback IPC without third-party upload or raw-page persistence.
-4. Wire the helper to local parse/import/B35/B15/Rating refresh and verify failure/cancel/crash restoration with mocks before touching the real system proxy.
-5. Perform the authorized real WeChat import twice, verifying database persistence and exact network restoration after every attempt.
+1. The user must explicitly accept the Windows trust prompt for `FluentMai Local Capture CA`; do not resume proxy activation until that human action is available.
+2. Retry the first real WeChat import from the already-validated service-account path, then verify AppData SQLite counts, B35/B15/Rating, restart persistence, and exact network restoration.
+3. Repeat the real import and verify zero duplicate scores/Rating-history rows plus exact restoration again.
+4. Wire the validated backend into a cancellable UI worker with an explicit CA disclosure/confirmation step.
+5. Continue the window/DPI checkpoint only after the real P0 loop passes.
+
+## P0 foundation checkpoint evidence
+
+- AppData migration copied (not moved) the legacy database to `%LOCALAPPDATA%\\FluentMai\\data\\maimai_data.db`; source SHA-256 remained `c77c50360d3b44c438f6900c1fd3643062938e001bb52a9a451e1ae9ec94582f` and the migrated database passed `integrity_check` at schema 2.
+- The public LXNS catalog was refreshed to 1,304 songs, 5,414 charts, and 20 explicit major versions; operating version resolved to 25,500 without creating local scores.
+- The packaged helper binds loopback, authenticates each IPC session with a random token passed through stdin, only intercepts the exact Wahlap host, keeps page bodies in memory, uses finite retries, and never uploads by default.
+- Success, authentication failure, helper error, helper crash, cancellation, stale-journal recovery, and packaged-helper finite-timeout paths are covered without changing the real system proxy.
+- Android Rating boundary values and B35/B15 future-version fail-closed semantics are covered by golden tests. Repeated imports do not duplicate automatic Rating history.
+- Real WeChat UI navigation reached the official `舞萌 | 中二` service-account `我的记录 -> 舞萌DX` entry using window-relative coordinates after accessibility discovery showed the Qt canvas exposes no actionable UIA controls.
+- The first real capture failed during CA preparation with `ca_installation_timeout`; the helper never announced ready, proxy activation never occurred, local score/import-batch counts stayed zero, the CA remained uninstalled, and the database stayed healthy.
+- A residual `certutil` process from the confirmation wait was terminated after verifying its exact system image path. Final helper count is zero, the recovery journal is absent, and final WinINET/WinHTTP fingerprints match preflight.

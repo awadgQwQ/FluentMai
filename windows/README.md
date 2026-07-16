@@ -6,7 +6,7 @@ FluentMai for Windows is the independent desktop implementation in the FluentMai
 
 - Python 3.10 or later
 - PyQt6 and PyQt6-Fluent-Widgets
-- SQLite for local catalog, score, quarantine, import-batch, and provider-cache data
+- SQLite under `%LOCALAPPDATA%\FluentMai` for local catalog, scores, import batches, quarantine, Rating snapshots, and provider cache
 - requests and Beautiful Soup for supported import/catalog flows
 - pytest for tests
 - PyInstaller for the portable one-directory build
@@ -66,6 +66,8 @@ The build includes application code, `assets/`, `locales/`, the default non-secr
 - Diving-Fish full-record import by Import Token
 - LXNS full-record import by personal API token
 - Local score database, validation, deduplication, quarantine, and import-batch summaries
+- Android-equivalent single-chart Rating plus local B35/B15 bucket calculation and automatic Rating history deduplication
+- A FluentMai-owned loopback Wahlap capture helper with authenticated IPC, finite retries, protected exact-network recovery, and no default third-party upload
 - Diving-Fish and LXNS song/chart catalog caches
 - Local score browsing and song/chart search
 - Cover resolution through user cache, runtime providers, and optional local assets
@@ -73,7 +75,7 @@ The build includes application code, `assets/`, `locales/`, the default non-secr
 
 ## Known limitations
 
-- Automatic Windows proxy capture is represented by a safe controller interface; no embedded certificate or registry-changing flow is enabled by default.
+- The automatic capture backend and packaged helper are implemented and mock-validated, but the one-click UI is not wired yet. Real-device validation stopped safely at the required Windows current-user root-certificate trust confirmation; no CA was installed and no score was imported at that checkpoint.
 - The manual Wahlap flow still needs broader real-account validation.
 - The upload business layer exists, but the upload UI is not fully wired.
 - The legacy dashboard still depends on public third-party player data; local scores are the source of truth for the newer local pages.

@@ -10,6 +10,7 @@ $windowsRoot = Join-Path $repoRoot "windows"
 $outputRoot = Join-Path $repoRoot "build\windows"
 $distRoot = Join-Path $outputRoot "dist"
 $workRoot = Join-Path $outputRoot "work"
+$helperWorkRoot = Join-Path $outputRoot "helper-work"
 $appRoot = Join-Path $distRoot "FluentMai"
 $archivePath = Join-Path $outputRoot "FluentMai-windows-portable.zip"
 $checksumPath = "$archivePath.sha256"
@@ -29,9 +30,24 @@ try {
         --add-data "THIRD_PARTY_NOTICES.md;." `
         --distpath $distRoot `
         --workpath $workRoot `
+        --specpath $workRoot `
         main.py
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller exited with code $LASTEXITCODE"
+    }
+
+    & $Python -m PyInstaller `
+        --noconfirm `
+        --clean `
+        --onefile `
+        --noconsole `
+        --name FluentMaiCaptureProxy `
+        --distpath $appRoot `
+        --workpath $helperWorkRoot `
+        --specpath $helperWorkRoot `
+        capture_helper/main.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "Capture helper PyInstaller exited with code $LASTEXITCODE"
     }
 }
 finally {
@@ -41,6 +57,10 @@ finally {
 $executable = Join-Path $appRoot "FluentMai.exe"
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Packaged executable not found: $executable"
+}
+$helperExecutable = Join-Path $appRoot "FluentMaiCaptureProxy.exe"
+if (-not (Test-Path -LiteralPath $helperExecutable -PathType Leaf)) {
+    throw "Packaged capture helper not found: $helperExecutable"
 }
 
 # Keep a human-visible copy beside the executable as well as PyInstaller's

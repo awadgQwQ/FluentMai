@@ -6,8 +6,8 @@ Windows is an independent Alpha / Development implementation under `windows/`. I
 
 - Technology: Python 3.10+, PyQt6, PyQt6-Fluent-Widgets, requests, Beautiful Soup, and SQLite
 - UI: independent desktop navigation and pages
-- Storage: independent local SQLite database
-- Packaging: PyInstaller one-directory portable build
+- Storage: independent AppData SQLite database with non-destructive legacy migration
+- Packaging: PyInstaller one-directory portable build plus a separate one-file loopback capture helper
 
 See [windows/README.md](../../windows/README.md) for setup, tests, packaging, smoke tests, features, and limitations.
 
@@ -20,9 +20,12 @@ python -m compileall -q -f windows scripts/windows
 .\scripts\windows\smoke_test.ps1 -Mode source
 .\scripts\windows\build_portable.ps1
 .\scripts\windows\smoke_test.ps1 -Mode package
+python scripts/windows/smoke_capture_helper.py --helper build/windows/dist/FluentMai/FluentMaiCaptureProxy.exe
 ```
 
-The Windows workflow runs only for changes under `windows/`, `scripts/windows/`, or its own workflow file. It uploads a development artifact after tests, compilation, source startup, packaging, packaged startup, and content checks succeed.
+The Windows workflow runs only for changes under `windows/`, `scripts/windows/`, or its own workflow file. It uploads a development artifact after tests, compilation, source startup, packaging, packaged startup, packaged-helper IPC startup, and content checks succeed.
+
+The capture foundation is local-only: a random authenticated loopback helper returns Wahlap pages in memory, the main process parses and atomically imports them, and a DPAPI-protected journal restores the exact WinINET/WinHTTP baseline after success, cancellation, failure, or the next startup. The automatic UI remains incomplete, and the first real-account validation stopped before proxy activation because Windows required a human root-certificate trust confirmation.
 
 ## Data, artwork, and release limits
 

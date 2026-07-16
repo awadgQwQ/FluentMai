@@ -1,30 +1,32 @@
 from __future__ import annotations
 
-import os
 import sqlite3
-import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from .models import Chart, Song, difficulty_name, normalize_song_type, normalize_title, now_ts
+from .models import Chart, MajorVersion, Song, difficulty_name, normalize_song_type, normalize_title, now_ts
+from .runtime_paths import backup_root, database_path, prepare_database_path
 
 
-def app_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent.parent
+SCHEMA_VERSION = 2
 
 
 def default_db_path() -> str:
-    return os.environ.get("FLUENTMAI_DB_PATH") or str(app_dir() / "maimai_data.db")
+    return str(database_path())
 
 
 def connect(db_path: str | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path or default_db_path())
+    resolved = prepare_database_path(db_path)
+    existed = resolved.exists() and resolved.stat().st_size > 0
+    conn = sqlite3.connect(resolved)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
-    ensure_schema(conn)
+    try:
+        ensure_schema(conn, db_path=resolved, existed=existed)
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 
@@ -147,13 +149,83 @@ CREATE TABLE IF NOT EXISTS provider_cache (
     fetched_at REAL NOT NULL,
     PRIMARY KEY (provider, cache_key)
 );
+
+CREATE TABLE IF NOT EXISTS schema_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS major_versions (
+    version_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rating_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at REAL NOT NULL,
+    rating INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    source_batch_id TEXT,
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rating_history_recorded ON rating_history(recorded_at, id);
+
+CREATE TABLE IF NOT EXISTS rating_snapshots (
+    batch_id TEXT PRIMARY KEY,
+    current_version_id INTEGER NOT NULL,
+    b35_count INTEGER NOT NULL,
+    b15_count INTEGER NOT NULL,
+    b35_rating INTEGER NOT NULL,
+    b15_rating INTEGER NOT NULL,
+    total_rating INTEGER NOT NULL,
+    ineligible_count INTEGER NOT NULL,
+    computed_at REAL NOT NULL
+);
 """
 
 
-def ensure_schema(conn: sqlite3.Connection) -> None:
+def ensure_schema(
+    conn: sqlite3.Connection,
+    *,
+    db_path: Path | None = None,
+    existed: bool = True,
+) -> None:
+    current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if current_version > SCHEMA_VERSION:
+        raise sqlite3.DatabaseError(
+            f"Database schema {current_version} is newer than supported schema {SCHEMA_VERSION}."
+        )
+    if existed and current_version < SCHEMA_VERSION and db_path is not None:
+        _backup_before_migration(conn, db_path, current_version)
     conn.executescript(SCHEMA_SQL)
     bootstrap_legacy_music_data(conn)
+    conn.execute(
+        "INSERT INTO schema_metadata(key, value) VALUES ('schema_version', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(SCHEMA_VERSION),),
+    )
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
+
+
+def _backup_before_migration(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    current_version: int,
+) -> Path:
+    root = backup_root()
+    root.mkdir(parents=True, exist_ok=True)
+    stamp = int(now_ts() * 1000)
+    destination = root / f"{db_path.stem}-schema-{current_version}-{stamp}.db"
+    backup = sqlite3.connect(destination)
+    try:
+        conn.backup(backup)
+    finally:
+        backup.close()
+    return destination
 
 
 def bootstrap_legacy_music_data(conn: sqlite3.Connection) -> None:
@@ -207,19 +279,63 @@ def bootstrap_legacy_music_data(conn: sqlite3.Connection) -> None:
             )
 
 
-def upsert_catalog(conn: sqlite3.Connection, songs: Sequence[Song], charts: Sequence[Chart]) -> None:
+def upsert_catalog(
+    conn: sqlite3.Connection,
+    songs: Sequence[Song],
+    charts: Sequence[Chart],
+    major_versions: Sequence[MajorVersion] | None = None,
+) -> None:
     now = now_ts()
     with conn:
         _upsert_catalog_rows(conn, songs, charts, now)
+        if major_versions:
+            _upsert_major_version_rows(conn, major_versions, now)
 
 
-def replace_catalog(conn: sqlite3.Connection, songs: Sequence[Song], charts: Sequence[Chart]) -> None:
+def replace_catalog(
+    conn: sqlite3.Connection,
+    songs: Sequence[Song],
+    charts: Sequence[Chart],
+    major_versions: Sequence[MajorVersion] | None = None,
+) -> None:
     """Replace song/chart metadata while preserving local score records."""
     now = now_ts()
     with conn:
         conn.execute("DELETE FROM charts")
         conn.execute("DELETE FROM songs")
         _upsert_catalog_rows(conn, songs, charts, now)
+        if major_versions is not None:
+            conn.execute("DELETE FROM major_versions")
+            _upsert_major_version_rows(conn, major_versions, now)
+
+
+def replace_major_versions(conn: sqlite3.Connection, versions: Sequence[MajorVersion]) -> None:
+    now = now_ts()
+    with conn:
+        conn.execute("DELETE FROM major_versions")
+        _upsert_major_version_rows(conn, versions, now)
+
+
+def _upsert_major_version_rows(
+    conn: sqlite3.Connection,
+    versions: Sequence[MajorVersion],
+    now: float,
+) -> None:
+    conn.executemany(
+        """
+        INSERT INTO major_versions(version_id, name, provider, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(version_id) DO UPDATE SET
+            name=excluded.name,
+            provider=excluded.provider,
+            updated_at=excluded.updated_at
+        """,
+        [
+            (version.version_id, version.name.strip(), version.provider, now)
+            for version in versions
+            if version.version_id > 0 and version.name.strip()
+        ],
+    )
 
 
 def _upsert_catalog_rows(
@@ -472,3 +588,15 @@ def load_cache(conn: sqlite3.Connection, provider: str, cache_key: str) -> sqlit
 
 def iter_score_rows(conn: sqlite3.Connection) -> Iterable[sqlite3.Row]:
     return conn.execute("SELECT * FROM score_records ORDER BY title, chart_type, difficulty_index")
+
+
+def latest_rating_snapshot(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM rating_snapshots ORDER BY computed_at DESC, rowid DESC LIMIT 1"
+    ).fetchone()
+
+
+def list_rating_history(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM rating_history ORDER BY recorded_at, id"
+    ).fetchall()

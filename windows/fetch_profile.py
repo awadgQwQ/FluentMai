@@ -7,28 +7,20 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
-import sys
 import time
 from typing import Any
 
 import requests
-
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from fluentmai_core.runtime_paths import database_path
 
 API_QUERY_PLAYER = "https://www.diving-fish.com/api/maimaidxprober/query/player"
 HTTP_TIMEOUT = 15
 
 
 def default_db_path() -> str:
-    return os.environ.get("FLUENTMAI_DB_PATH") or os.path.join(BASE_DIR, "maimai_data.db")
+    return str(database_path())
 
-
-DB_PATH = default_db_path()
 
 logger = logging.getLogger("fetch_profile")
 
@@ -88,7 +80,7 @@ def query_player(*, qq: str = "", username: str = "", b50: bool = True) -> dict[
 # ── SQLite helpers ────────────────────────────────────────────────
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(default_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     return conn
