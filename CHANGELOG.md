@@ -74,5 +74,5 @@ All notable user-facing changes to FluentMai are recorded here.
 
 - First public Android Beta preview with Wahlap import, local Room storage, B50 browsing, optional community-service upload, quarantine, and diagnostic redaction.
 
-[0.2.0-beta]: https://github.com/Daozhu1007/FluentMai-Android/releases/tag/v0.2.0-beta
-[0.1.0-beta.1]: https://github.com/Daozhu1007/FluentMai-Android/releases/tag/v0.1.0-beta.1
+[0.2.0-beta]: https://github.com/Daozhu1007/FluentMai/releases/tag/v0.2.0-beta
+[0.1.0-beta.1]: https://github.com/Daozhu1007/FluentMai/releases/tag/v0.1.0-beta.1

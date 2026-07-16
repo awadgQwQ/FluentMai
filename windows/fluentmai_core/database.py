@@ -1,0 +1,474 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+import sys
+from pathlib import Path
+from typing import Iterable, Sequence
+
+from .models import Chart, Song, difficulty_name, normalize_song_type, normalize_title, now_ts
+
+
+def app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def default_db_path() -> str:
+    return os.environ.get("FLUENTMAI_DB_PATH") or str(app_dir() / "maimai_data.db")
+
+
+def connect(db_path: str | None = None) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path or default_db_path())
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    ensure_schema(conn)
+    return conn
+
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS songs (
+    song_id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    title_norm TEXT NOT NULL,
+    artist TEXT,
+    genre TEXT,
+    version INTEGER,
+    bpm INTEGER,
+    map TEXT,
+    rights TEXT,
+    locked INTEGER NOT NULL DEFAULT 0,
+    disabled INTEGER NOT NULL DEFAULT 0,
+    jacket_url TEXT,
+    provider TEXT,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_songs_title_norm ON songs(title_norm);
+
+CREATE TABLE IF NOT EXISTS charts (
+    song_id INTEGER NOT NULL,
+    chart_type TEXT NOT NULL,
+    difficulty_index INTEGER NOT NULL,
+    difficulty_name TEXT NOT NULL,
+    level TEXT,
+    level_value REAL,
+    charter TEXT,
+    chart_version INTEGER,
+    chart_version_name TEXT,
+    notes_total INTEGER,
+    notes_tap INTEGER,
+    notes_hold INTEGER,
+    notes_slide INTEGER,
+    notes_touch INTEGER,
+    notes_break INTEGER,
+    is_utage INTEGER NOT NULL DEFAULT 0,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (song_id, chart_type, difficulty_index),
+    FOREIGN KEY (song_id) REFERENCES songs(song_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_charts_lookup ON charts(chart_type, difficulty_index, level);
+
+CREATE TABLE IF NOT EXISTS score_records (
+    identity_key TEXT PRIMARY KEY,
+    song_id INTEGER,
+    chart_type TEXT NOT NULL,
+    difficulty_index INTEGER NOT NULL,
+    difficulty_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    title_norm TEXT NOT NULL,
+    achievements REAL NOT NULL,
+    dx_score INTEGER,
+    rank TEXT,
+    full_combo TEXT,
+    full_sync TEXT,
+    play_time TEXT,
+    source TEXT NOT NULL,
+    source_batch_id TEXT NOT NULL,
+    raw_identifier TEXT,
+    raw_fingerprint TEXT,
+    level TEXT,
+    level_value REAL,
+    imported_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_score_song ON score_records(song_id, chart_type, difficulty_index);
+CREATE INDEX IF NOT EXISTS idx_score_title ON score_records(title_norm);
+CREATE INDEX IF NOT EXISTS idx_score_source ON score_records(source);
+
+CREATE TABLE IF NOT EXISTS score_record_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    identity_key TEXT NOT NULL,
+    source TEXT NOT NULL,
+    raw_identifier TEXT,
+    raw_fingerprint TEXT,
+    imported_at REAL NOT NULL,
+    UNIQUE(identity_key, source, raw_fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS quarantine_records (
+    id TEXT PRIMARY KEY,
+    source_batch_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    difficulty_index INTEGER,
+    title TEXT,
+    raw_fingerprint TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_quarantine_batch ON quarantine_records(source_batch_id);
+
+CREATE TABLE IF NOT EXISTS import_batches (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    started_at REAL NOT NULL,
+    imported_at REAL NOT NULL,
+    fetched_count INTEGER NOT NULL,
+    parsed_count INTEGER NOT NULL,
+    inserted INTEGER NOT NULL,
+    updated INTEGER NOT NULL,
+    skipped_duplicate INTEGER NOT NULL,
+    quarantined INTEGER NOT NULL,
+    rejected INTEGER NOT NULL,
+    failed INTEGER NOT NULL,
+    message TEXT
+);
+
+CREATE TABLE IF NOT EXISTS provider_cache (
+    provider TEXT NOT NULL,
+    cache_key TEXT NOT NULL,
+    body TEXT NOT NULL,
+    etag TEXT,
+    fetched_at REAL NOT NULL,
+    PRIMARY KEY (provider, cache_key)
+);
+"""
+
+
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(SCHEMA_SQL)
+    bootstrap_legacy_music_data(conn)
+    conn.commit()
+
+
+def bootstrap_legacy_music_data(conn: sqlite3.Connection) -> None:
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='music_data'"
+    ).fetchone()
+    if not exists:
+        return
+    has_catalog = conn.execute("SELECT 1 FROM charts LIMIT 1").fetchone()
+    if has_catalog:
+        return
+
+    now = now_ts()
+    rows = conn.execute(
+        "SELECT id, title, type, ds_basic, ds_advanced, ds_expert, ds_master, ds_remaster, "
+        "level_basic, level_advanced, level_expert, level_master, level_remaster FROM music_data"
+    ).fetchall()
+    for row in rows:
+        song_id = int(row["id"])
+        title = row["title"]
+        chart_type = normalize_song_type(row["type"])
+        conn.execute(
+            """
+            INSERT INTO songs(song_id, title, title_norm, provider, updated_at)
+            VALUES (?, ?, ?, 'diving-fish-legacy', ?)
+            ON CONFLICT(song_id) DO UPDATE SET
+                title=excluded.title,
+                title_norm=excluded.title_norm,
+                updated_at=excluded.updated_at
+            """,
+            (song_id, title, normalize_title(title), now),
+        )
+        for idx, label in enumerate(("basic", "advanced", "expert", "master", "remaster")):
+            level = row[f"level_{label}"]
+            ds = row[f"ds_{label}"]
+            if level is None and ds is None:
+                continue
+            conn.execute(
+                """
+                INSERT INTO charts(
+                    song_id, chart_type, difficulty_index, difficulty_name,
+                    level, level_value, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(song_id, chart_type, difficulty_index) DO UPDATE SET
+                    level=COALESCE(excluded.level, charts.level),
+                    level_value=COALESCE(excluded.level_value, charts.level_value),
+                    updated_at=excluded.updated_at
+                """,
+                (song_id, chart_type, idx, difficulty_name(idx), level, ds, now),
+            )
+
+
+def upsert_catalog(conn: sqlite3.Connection, songs: Sequence[Song], charts: Sequence[Chart]) -> None:
+    now = now_ts()
+    with conn:
+        _upsert_catalog_rows(conn, songs, charts, now)
+
+
+def replace_catalog(conn: sqlite3.Connection, songs: Sequence[Song], charts: Sequence[Chart]) -> None:
+    """Replace song/chart metadata while preserving local score records."""
+    now = now_ts()
+    with conn:
+        conn.execute("DELETE FROM charts")
+        conn.execute("DELETE FROM songs")
+        _upsert_catalog_rows(conn, songs, charts, now)
+
+
+def _upsert_catalog_rows(
+    conn: sqlite3.Connection,
+    songs: Sequence[Song],
+    charts: Sequence[Chart],
+    now: float,
+) -> None:
+    for song in songs:
+        conn.execute(
+            """
+            INSERT INTO songs(
+                song_id, title, title_norm, artist, genre, version, bpm, map, rights,
+                locked, disabled, jacket_url, provider, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(song_id) DO UPDATE SET
+                title=excluded.title,
+                title_norm=excluded.title_norm,
+                artist=COALESCE(NULLIF(excluded.artist, ''), songs.artist),
+                genre=COALESCE(NULLIF(excluded.genre, ''), songs.genre),
+                version=COALESCE(excluded.version, songs.version),
+                bpm=COALESCE(excluded.bpm, songs.bpm),
+                map=COALESCE(NULLIF(excluded.map, ''), songs.map),
+                rights=COALESCE(NULLIF(excluded.rights, ''), songs.rights),
+                locked=excluded.locked,
+                disabled=excluded.disabled,
+                jacket_url=COALESCE(NULLIF(excluded.jacket_url, ''), songs.jacket_url),
+                provider=excluded.provider,
+                updated_at=excluded.updated_at
+            """,
+            (
+                song.song_id,
+                song.title,
+                normalize_title(song.title),
+                song.artist,
+                song.genre,
+                song.version,
+                song.bpm,
+                song.map,
+                song.rights,
+                int(song.locked),
+                int(song.disabled),
+                song.jacket_url,
+                song.provider,
+                now,
+            ),
+        )
+    for chart in charts:
+        conn.execute(
+            """
+            INSERT INTO charts(
+                song_id, chart_type, difficulty_index, difficulty_name, level, level_value,
+                charter, chart_version, chart_version_name, notes_total, notes_tap,
+                notes_hold, notes_slide, notes_touch, notes_break, is_utage, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(song_id, chart_type, difficulty_index) DO UPDATE SET
+                difficulty_name=excluded.difficulty_name,
+                level=COALESCE(NULLIF(excluded.level, ''), charts.level),
+                level_value=COALESCE(excluded.level_value, charts.level_value),
+                charter=COALESCE(NULLIF(excluded.charter, ''), charts.charter),
+                chart_version=COALESCE(excluded.chart_version, charts.chart_version),
+                chart_version_name=COALESCE(NULLIF(excluded.chart_version_name, ''), charts.chart_version_name),
+                notes_total=COALESCE(excluded.notes_total, charts.notes_total),
+                notes_tap=COALESCE(excluded.notes_tap, charts.notes_tap),
+                notes_hold=COALESCE(excluded.notes_hold, charts.notes_hold),
+                notes_slide=COALESCE(excluded.notes_slide, charts.notes_slide),
+                notes_touch=COALESCE(excluded.notes_touch, charts.notes_touch),
+                notes_break=COALESCE(excluded.notes_break, charts.notes_break),
+                is_utage=excluded.is_utage,
+                updated_at=excluded.updated_at
+            """,
+            (
+                chart.song_id,
+                normalize_song_type(chart.chart_type),
+                chart.difficulty_index,
+                chart.difficulty_name,
+                chart.level,
+                chart.level_value,
+                chart.charter,
+                chart.chart_version,
+                chart.chart_version_name,
+                chart.notes_total,
+                chart.notes_tap,
+                chart.notes_hold,
+                chart.notes_slide,
+                chart.notes_touch,
+                chart.notes_break,
+                int(chart.is_utage),
+                now,
+            ),
+        )
+
+
+def resolve_chart(
+    conn: sqlite3.Connection,
+    *,
+    title: str,
+    chart_type: str,
+    difficulty_index: int,
+    level: str | None = None,
+) -> sqlite3.Row | None:
+    rows = conn.execute(
+        """
+        SELECT s.song_id, s.title, c.chart_type, c.difficulty_index, c.level, c.level_value
+        FROM songs s
+        JOIN charts c ON c.song_id = s.song_id
+        WHERE s.title_norm = ? AND c.chart_type = ? AND c.difficulty_index = ?
+        """,
+        (normalize_title(title), normalize_song_type(chart_type), difficulty_index),
+    ).fetchall()
+    if not rows:
+        return None
+    if len(rows) == 1 or not level:
+        return rows[0]
+    wanted = level.strip().upper()
+    for row in rows:
+        if (row["level"] or "").strip().upper() == wanted:
+            return row
+    return rows[0]
+
+
+def search_songs(conn: sqlite3.Connection, query: str = "", limit: int = 200) -> list[sqlite3.Row]:
+    params: list[object] = []
+    where = ""
+    q = query.strip()
+    if q:
+        if q.isdigit():
+            where = "WHERE s.song_id = ? OR s.title_norm LIKE ?"
+            params.extend([int(q), f"%{normalize_title(q)}%"])
+        else:
+            where = "WHERE s.title_norm LIKE ? OR COALESCE(s.artist, '') LIKE ?"
+            params.extend([f"%{normalize_title(q)}%", f"%{q}%"])
+    params.append(limit)
+    return conn.execute(
+        f"""
+        SELECT
+            s.song_id, s.title, s.artist, s.genre, s.version, s.bpm, s.disabled,
+            COUNT(c.difficulty_index) AS chart_count,
+            MAX(sr.achievements) AS best_achievement
+        FROM songs s
+        LEFT JOIN charts c ON c.song_id = s.song_id
+        LEFT JOIN score_records sr ON sr.song_id = s.song_id
+        {where}
+        GROUP BY s.song_id
+        ORDER BY s.title
+        LIMIT ?
+        """,
+        params,
+    ).fetchall()
+
+
+def list_charts_for_song(conn: sqlite3.Connection, song_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT
+            c.*, sr.achievements, sr.dx_score, sr.full_combo, sr.full_sync,
+            sr.source, sr.updated_at AS score_updated_at
+        FROM charts c
+        LEFT JOIN score_records sr
+            ON sr.song_id = c.song_id
+            AND sr.chart_type = c.chart_type
+            AND sr.difficulty_index = c.difficulty_index
+        WHERE c.song_id = ?
+        ORDER BY c.chart_type DESC, c.difficulty_index
+        """,
+        (song_id,),
+    ).fetchall()
+
+
+def list_scores(
+    conn: sqlite3.Connection,
+    *,
+    query: str = "",
+    source: str = "",
+    difficulty_index: int | None = None,
+    limit: int = 500,
+) -> list[sqlite3.Row]:
+    clauses: list[str] = []
+    params: list[object] = []
+    if query.strip():
+        if query.strip().isdigit():
+            clauses.append("(song_id = ? OR title_norm LIKE ?)")
+            params.extend([int(query.strip()), f"%{normalize_title(query)}%"])
+        else:
+            clauses.append("title_norm LIKE ?")
+            params.append(f"%{normalize_title(query)}%")
+    if source.strip():
+        clauses.append("source = ?")
+        params.append(source.strip())
+    if difficulty_index is not None:
+        clauses.append("difficulty_index = ?")
+        params.append(difficulty_index)
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    params.append(limit)
+    return conn.execute(
+        f"""
+        SELECT *
+        FROM score_records
+        {where}
+        ORDER BY achievements DESC, title ASC, difficulty_index ASC
+        LIMIT ?
+        """,
+        params,
+    ).fetchall()
+
+
+def count_quarantine(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM quarantine_records").fetchone()[0])
+
+
+def recent_quarantine(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM quarantine_records ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def sources(conn: sqlite3.Connection) -> list[str]:
+    return [
+        row[0]
+        for row in conn.execute(
+            "SELECT DISTINCT source FROM score_records ORDER BY source"
+        ).fetchall()
+    ]
+
+
+def insert_cache(conn: sqlite3.Connection, provider: str, cache_key: str, body: str, etag: str = "") -> None:
+    conn.execute(
+        """
+        INSERT INTO provider_cache(provider, cache_key, body, etag, fetched_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(provider, cache_key) DO UPDATE SET
+            body=excluded.body,
+            etag=excluded.etag,
+            fetched_at=excluded.fetched_at
+        """,
+        (provider, cache_key, body, etag, now_ts()),
+    )
+    conn.commit()
+
+
+def load_cache(conn: sqlite3.Connection, provider: str, cache_key: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM provider_cache WHERE provider = ? AND cache_key = ?",
+        (provider, cache_key),
+    ).fetchone()
+
+
+def iter_score_rows(conn: sqlite3.Connection) -> Iterable[sqlite3.Row]:
+    return conn.execute("SELECT * FROM score_records ORDER BY title, chart_type, difficulty_index")

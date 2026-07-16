@@ -16,12 +16,12 @@
 - 不卸载设备上的 FluentMai。
 - 不清除应用数据、数据库、登录状态或成绩。
 - 不主动重写 Android 导入流程。
-- 不修改只读参考仓库 `D:\Code\MaiproberPlus`。
+- 不修改本地只读 MaiproberPlus 参考仓库。
 - 参考截图只表达需求和信息架构，不复制第三方应用视觉设计。
 
 ## Git 基线
 
-- 仓库：`D:\Code\FluentMai-Android`
+- 仓库：当前 FluentMai 工作区
 - 分支：`master`
 - upstream：`origin/master`
 - starting commit：`da35826f003bb6347350eca07b91fed3cf0e76ed`
@@ -203,7 +203,7 @@ Gradle XML 汇总：
 
 Debug APK：
 
-- 路径：`D:\Code\FluentMai-Android\app\build\outputs\apk\debug\app-debug.apk`
+- 路径：`app/build/outputs/apk/debug/app-debug.apk`
 - 大小：28,437,980 bytes
 - SHA-256：`CC70E1F62FB5212E5F90C2E7AFD2666FBD09A08B50BE55A9F36211D26CDE9954`
 - 当前构建任务判定产物为 up-to-date。
@@ -303,12 +303,12 @@ Debug APK：
 
 基线截图：
 
-- `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\baseline_home.png`
-- `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\baseline_charts.png`
+- `<local-evidence>/baseline_home.png`
+- `<local-evidence>/baseline_charts.png`
 
 ## 只读参考仓库
 
-- `D:\Code\MaiproberPlus`
+- 本地只读 MaiproberPlus 参考仓库
 - 分支：`lab/current-wahlap-sync`
 - commit：`bf4a6e179758ffa9cde89ec099ac9afd90dd07fa`
 - worktree：干净
@@ -375,7 +375,7 @@ Debug APK：
 - Debug APK：28,437,980 bytes；SHA-256 `F15709B2D303E7AA49C5C83765F3953CD4A7A81385E712281E585FE3EEFEE197`。
 - 对 serial `2923ae26` 执行 `adb install -r` 覆盖安装成功；没有卸载或清除数据，首次安装时间仍为 `2026-06-29 02:36:58`。
 - 真机冷启动成功，`TotalTime=864ms`；日志无 fatal exception，Rating ready 为 1,265ms，本地 1,619 条成绩全部匹配。
-- 首页 Rating 从基线 `10435` 恢复为 `14655`；B35 为 35 张，当前版本 B15 为 15 张。界面证据：`C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p0_b15_fixed.png`。
+- 首页 Rating 从基线 `10435` 恢复为 `14655`；B35 为 35 张，当前版本 B15 为 15 张。界面证据：`<local-evidence>/p0_b15_fixed.png`。
 - 覆盖安装并启动前后，在强制停止应用后以相同的主键顺序与 JSON-lines 规范化方法计算语义指纹；四组数据数量和 SHA-256 均逐字节一致：
   - `score_records`：1,619 / `22cc15e4fbcb25b12c4c3af7de962795cce41ce6a7f49e8d32c29ad8e484ea21`
   - `quarantine_records`：9,983 / `cf8d21c506aabede62b6fed1a10a2e888bdf39dd8acf7de5997b2a23924e0799`
@@ -404,7 +404,7 @@ Debug APK：
 - 上传区水鱼与 LXNS Token 标签均可见，2 个输入框均为空；设备上旧 `fluentmai_tokens.xml` 仍存在但未被读取。
 - 覆盖安装与启动前后，旧 Token 偏好文件和 7 个历史 `wahlap-*.html` 文件的路径、大小、mtime 完全一致；没有清理或重写既有隐私缓存。
 - SQLite `integrity_check=ok`、`user_version=5`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义指纹全部与前一 checkpoint 一致。
-- 设置页证据：`C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p0_privacy_boundary.png`。
+- 设置页证据：`<local-evidence>/p0_privacy_boundary.png`。
 
 ## P0：谱面查询性能与页面状态
 
@@ -456,8 +456,8 @@ Debug APK：
 - 真机牌子页按当前有效曲库计算“舞萌 DX 2026 将”为 17 / 92、剩余 75；阻塞谱面展示当前达成率与到 SSS 的差距，未出现虚假完成。
 - SQLite `integrity_check=ok`、`user_version=5`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义指纹全部与基线逐字节一致；临时数据库副本已删除。
 - 界面证据：
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p1_player_records.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p1_plate_progress.png`
+  - `<local-evidence>/p1_player_records.png`
+  - `<local-evidence>/p1_plate_progress.png`
 
 ## P1：社区别名搜索、稳定谱面身份、完整筛选与统一详情
 
@@ -482,8 +482,8 @@ Debug APK：
 - 谱面标题进入详情后使用系统返回键回到 `834` 的查询结果，搜索与列表状态保持；组合身份搜索、双源降级、失败更新保留缓存、Yuzu ID 折回、宴会场 ID 保留、同名歧义与未知上线状态均有 JVM 回归测试。
 - 覆盖安装后，旧 Token 偏好元数据仍为 `341|1783304211`，7 个历史 HTML 文件仍存在且没有读取内容；新增的 1 个别名缓存只包含公开社区检索数据。SQLite `integrity_check=ok`、`user_version=5`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义指纹全部与基线逐字节一致，临时数据库副本已删除。
 - 界面证据：
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p2_chart_filters.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p2_chart_detail.png`
+  - `<local-evidence>/p2_chart_filters.png`
+  - `<local-evidence>/p2_chart_detail.png`
 
 ## P1：工具箱与 Rating Trend
 
@@ -507,9 +507,9 @@ Debug APK：
 - SQLite `integrity_check=ok`、`user_version=6`。既有成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5，四组规范化语义 SHA-256 仍分别为 `22cc15e4fbcb25b12c4c3af7de962795cce41ce6a7f49e8d32c29ad8e484ea21`、`cf8d21c506aabede62b6fed1a10a2e888bdf39dd8acf7de5997b2a23924e0799`、`b13da25b612c298edc0a6393608890f99ced6e2275d1847c63dbfff1d36c76cc`、`4c7a35fe6d9060b61f71d13f45922a657445e1fb78a721b4fa6fa4564ab8919c`，与 v5 基线逐字节一致。
 - 旧 Token 文件元数据仍为 `341|1783304211`；7 个历史 HTML 文件的元数据 SHA-256 仍为 `EBB86FFAC0DCB84CF6693C6E8B9A21E9F5C843C4001E4373F208A5C9C3C5E7D4`。没有读取 Token、Cookie 或 HTML 内容，临时数据库副本已删除。
 - 界面证据：
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p3_toolbox_rating.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p3_toolbox_rating_calculated.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p3_rating_trend.png`
+  - `<local-evidence>/p3_toolbox_rating.png`
+  - `<local-evidence>/p3_toolbox_rating_calculated.png`
+  - `<local-evidence>/p3_rating_trend.png`
 
 ## P1：可解释推分推荐
 
@@ -534,7 +534,7 @@ Debug APK：
 - 真机“不想练”后建议从 22 条变为 21 条，切换“首页 → 记录”后推荐区段与排除项仍在；恢复排除后回到 22 条。推荐卡进入统一谱面详情成功，系统返回仍为推荐区段。
 - SQLite `integrity_check=ok`、`user_version=6`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5 及四组规范化语义 SHA-256 全部与基线一致，`rating_history` 最终仍为 0 行，临时数据库副本已删除。
 - 界面证据：
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p4_rating_recommendations.png`
+  - `<local-evidence>/p4_rating_recommendations.png`
 
 ## P1：Android 平板、横屏与可调整窗口
 
@@ -554,14 +554,14 @@ Debug APK：
 - 本机原先没有 Android Emulator 或 system image；为完成验收，新增独立 `FluentMai_API_34_Tablet` AVD，并在全新空数据的 API 34 Medium Tablet（2560×1600 / 320dpi，逻辑宽度 1280dp）安装同一 APK。冷启动 `TotalTime=4030ms`，本地曲库与谱面结果均为 5,360，谱面卡稳定形成三列，日志无应用 fatal 或 Room 错误；截图后已关闭模拟器，真机仍是唯一在线设备。
 - SQLite `integrity_check=ok`、`user_version=6`；成绩 1,619、隔离 9,983、导入批次 29、旧原始页 5 的四组规范化语义 SHA-256 与基线逐字节一致，`rating_history` 仍为 0 行，临时数据库副本已删除。
 - 界面证据：
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_phone_portrait.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_phone_landscape_real.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_phone_landscape_final.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_landscape_recommendations.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_landscape_recommendation_grid.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_tablet_expanded.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_emulator_tablet.png`
-  - `C:\Users\Daozh\.codex\visualizations\2026\07\13\019f5cc4-901b-70b0-803e-290994d3a542\p5_emulator_tablet_charts_ready.png`
+  - `<local-evidence>/p5_phone_portrait.png`
+  - `<local-evidence>/p5_phone_landscape_real.png`
+  - `<local-evidence>/p5_phone_landscape_final.png`
+  - `<local-evidence>/p5_landscape_recommendations.png`
+  - `<local-evidence>/p5_landscape_recommendation_grid.png`
+  - `<local-evidence>/p5_tablet_expanded.png`
+  - `<local-evidence>/p5_emulator_tablet.png`
+  - `<local-evidence>/p5_emulator_tablet_charts_ready.png`
 
 ## P2：iOS MVP、共享领域层与 macOS Level 1 验证链
 
