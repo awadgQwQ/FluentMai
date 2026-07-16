@@ -109,8 +109,14 @@ def prepare_database_path(path: str | Path | None = None) -> Path:
             os.replace(temporary, target)
             return target
         finally:
-            temporary.unlink(missing_ok=True)
+            _remove_sqlite_family(temporary)
     return target
+
+
+def _remove_sqlite_family(path: Path) -> None:
+    path.unlink(missing_ok=True)
+    path.with_name(path.name + "-wal").unlink(missing_ok=True)
+    path.with_name(path.name + "-shm").unlink(missing_ok=True)
 
 
 def sqlite_integrity(path: str | Path) -> str:

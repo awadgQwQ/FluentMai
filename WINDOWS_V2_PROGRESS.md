@@ -6,12 +6,13 @@ This is the single working report for the Windows 2.0 product update. It must no
 
 ## Status
 
-- Phase: P0 capture foundation checkpoint; paused at required human CA trust confirmation
+- Phase: P0 real WeChat capture loop complete; next checkpoint is window sizing/high-DPI responsiveness
 - Branch: `feat/windows-product-parity`
 - Starting commit: `6fff45d5b7f85b358e2e05a249632010417ec55b`
 - Current release decision: development may continue; public Windows release is blocked pending a project-license/Qt binding decision and complete packaged-license verification
-- P0 status: backend/mock loop is complete, but the first real import is not complete. The first real attempt stopped before proxy activation because current-user root CA installation required human confirmation.
-- System network changes made by this task so far: the real attempt did not reach proxy activation. Final WinINET/WinHTTP fingerprints equal the preflight baseline; no recovery journal or helper remains.
+- P0 status: complete. The current account produced five real Wahlap difficulty pages in memory, 1,632 local score rows, a 35/15 B35/B15 snapshot, Rating 14,633, and two subsequent zero-duplicate real imports (including one with the packaged helper).
+- System network result: every real attempt restored the exact preflight WinINET and WinHTTP snapshots. Final proxy hash is `c95f9dd3f866b4d21e5fc3ed6de790229eb01ed3b735e00fe85825c5e8d79104`, final WinHTTP fingerprint is `5b07a5d64e5af355c0d92253ce43abf88f6197a0aaa5ea221b0269ba6533fd70`, no recovery journal exists, and no helper/certutil process remains.
+- WeChat preference result: `Use the system default browser to open third-party web pages` was temporarily disabled for capture and verified restored to its original enabled state after packaged-helper validation.
 - Third-party uploads made by this task so far: none
 
 ## Git baseline
@@ -65,6 +66,8 @@ The task message referred to additional attached FluentMai/RhythmAlign screensho
 - Manual Wahlap auth URL/Cookie/Reqable input, five-page fetch, parse, validation, deduplication, quarantine, and SQLite transaction
 - Diving Fish and LXNS imports into the local score table
 - Local song/chart catalog, score table, quarantine and import-batch tables
+- Real WeChat/Wahlap capture through a FluentMai-owned current-user CA, exact recoverable system proxy, authenticated IPC, and nonce-protected same-origin browser-memory collection with no default upload
+- Local Rating/B35/B15 snapshots derived from `score_records`, deduplicated Rating Trend history, and aggregate player statistics derived from the local database
 - Local score browser and a virtualized `QAbstractListModel`/delegate chart browser
 - Catalog refresh from Diving Fish/LXNS
 - Runtime/user-cache jacket resolution
@@ -74,12 +77,10 @@ The task message referred to additional attached FluentMai/RhythmAlign screensho
 
 ### Missing or materially incomplete
 
-- One-click WeChat capture, safe helper IPC, FluentMai-owned CA, exact crash recovery, and real automatic local import
-- Local B35/B15/Rating derived from `score_records`; the dashboard still uses a third-party profile cache
-- Player statistics, plates, Rating Trend, recommendations, score-loss chart selection, and Kaleid×Scope boundary UI
+- Player-statistics UI, plates, recommendations, score-loss chart selection, and Kaleid×Scope boundary UI
 - Unified information architecture (`首页 / 导入 / 谱面 / 工具 / 设置 / 关于`)
 - Complete settings/privacy/diagnostics/update experience
-- Stable AppData data-directory policy, migration versioning, installer, update channels, and Windows-only release filtering
+- Installer, update channels, and Windows-only release filtering
 
 ### Unsafe legacy paths to retire
 
@@ -243,11 +244,17 @@ Gaps against Windows 2.0:
 | `.\\scripts\\windows\\build_portable.ps1` | 0 | main app and `FluentMaiCaptureProxy.exe` built; forbidden artifact count 0 |
 | `.\\scripts\\windows\\smoke_test.ps1 -Mode package` | 0 | packaged main window constructed/shown and exited |
 | packaged helper IPC smoke | 0 | helper reached ready state without CA installation, timed out finitely, and restored the simulated proxy exactly |
+| three real WeChat imports | 0 | first import inserted 1,632 scores; two repeats inserted/updated 0 and skipped 1,632 duplicates; packaged helper used on the final run |
+| `python -m pytest -q windows/tests` | 0 | 71 passed after browser-memory capture and migration-sidecar cleanup |
+| `python -m compileall -q -f windows scripts/windows` | 0 | completed after final P0 changes |
+| `.\scripts\windows\smoke_test.ps1 -Mode source` | 0 | final source smoke passed |
+| `.\scripts\windows\build_portable.ps1` | 0 | final portable build passed; ZIP SHA-256 `9340bf497c32ef0b9101c9b0212c0619b9b4f31b8c884bb21a252a6f611f6135` |
+| final packaged main/helper smoke and artifact audit | 0 | both smokes passed; forbidden files 0; jacket directory absent; declared ZIP checksum matched |
 
 ## Checkpoints
 
 - [x] `chore: establish Windows v2 baseline`
-- [ ] `feat: integrate local Wahlap capture pipeline`
+- [x] `feat: integrate local Wahlap capture pipeline`
 - [ ] `fix: make Windows shell responsive and DPI safe`
 - [ ] `feat: reach Android feature parity on Windows`
 - [ ] `ui: adopt FluentMai Windows design system`
@@ -258,21 +265,24 @@ Gaps against Windows 2.0:
 
 ## Immediate next work
 
-1. The user must explicitly accept the Windows trust prompt for `FluentMai Local Capture CA`; do not resume proxy activation until that human action is available.
-2. Retry the first real WeChat import from the already-validated service-account path, then verify AppData SQLite counts, B35/B15/Rating, restart persistence, and exact network restoration.
-3. Repeat the real import and verify zero duplicate scores/Rating-history rows plus exact restoration again.
-4. Continue the window/DPI checkpoint only after the real P0 loop passes.
+1. Start the window-size/high-DPI checkpoint; the measured top-level minimum-height defect remains open.
+2. Continue Android core-feature parity and replace the legacy third-party dashboard cache with the validated local Rating/statistics views.
+3. Keep public release blocked until the project/PyQt/Fluent-Widgets license path is explicitly selected and packaged-license verification is complete.
 
 ## P0 foundation checkpoint evidence
 
 - AppData migration copied (not moved) the legacy database to `%LOCALAPPDATA%\\FluentMai\\data\\maimai_data.db`; source SHA-256 remained `c77c50360d3b44c438f6900c1fd3643062938e001bb52a9a451e1ae9ec94582f` and the migrated database passed `integrity_check` at schema 2.
 - The public LXNS catalog was refreshed to 1,304 songs, 5,414 charts, and 20 explicit major versions; operating version resolved to 25,500 without creating local scores.
-- The packaged helper binds loopback, authenticates each IPC session with a random token passed through stdin, only intercepts the exact Wahlap host, keeps page bodies in memory, uses finite retries, and never uploads by default.
+- The packaged helper binds loopback, authenticates each IPC session with a random token passed through stdin, only intercepts the exact Wahlap host, and never uploads by default. After the authenticated home response, it injects a no-store same-origin page; the WeChat WebView fetches five difficulties and POSTs each page to a random-nonce path that is short-circuited locally before any upstream request.
 - Success, authentication failure, helper error, helper crash, cancellation, stale-journal recovery, and packaged-helper finite-timeout paths are covered without changing the real system proxy.
 - Android Rating boundary values and B35/B15 future-version fail-closed semantics are covered by golden tests. Repeated imports do not duplicate automatic Rating history.
 - Real WeChat UI navigation reached the official `舞萌 | 中二` service-account `我的记录 -> 舞萌DX` entry using window-relative coordinates after accessibility discovery showed the Qt canvas exposes no actionable UIA controls.
-- The first real capture failed during CA preparation with `ca_installation_timeout`; the helper never announced ready, proxy activation never occurred, local score/import-batch counts stayed zero, the CA remained uninstalled, and the database stayed healthy.
-- A residual `certutil` process from the confirmation wait was terminated after verifying its exact system image path. Final helper count is zero, the recovery journal is absent, and final WinINET/WinHTTP fingerprints match preflight.
+- The Windows trust dialog was verified against both the exact subject `FluentMai Local Capture CA` and SHA-1 `AF9D656F6F6E5359794F5047A151E8D1498C1BD2` before acceptance. Exactly one matching current-user Root certificate remains installed.
+- The first successful real import captured 2,498,486 bytes across five difficulty pages, parsed 1,634 records, inserted 1,632, and quarantined two `blank_title` records. SQLite integrity is `ok`; score semantic SHA-256 is `7d9f6761146bfd1765cd3a4ed8fea99c7b24bc0b0ffac70c04f83984292df43a`.
+- Local Rating is 14,633: B35 has exactly 35 items / 10,419 Rating and B15 has exactly 15 items / 4,214 Rating. Local aggregate player statistics are 1,632 chart scores across 1,067 songs, including 535 SSS+ and 75 AP/AP+ results.
+- Two additional real imports, the last using the packaged helper EXE, each parsed the same 1,634 records with `inserted=0`, `updated=0`, and `skipped_duplicate=1,632`; the score count and semantic hash did not change. Three rating snapshots exist, while unchanged repeats correctly leave only one Trend point.
+- The task temporarily disabled WeChat's system-default-browser option so the official-account menu opened in WeChat, then verified the original enabled state was restored. Final helper/certutil counts are zero and the recovery journal is absent.
+- Final WinINET and WinHTTP fingerprints match preflight after every successful import. Twenty-five task-generated WeChat image artifacts were zeroed; AppData/evidence sensitive-pattern matches are zero; the database has no Cookie/Token/session/auth-URL/HTML columns and quarantine stores only a fingerprint, not raw input.
 - The import center now exposes one high-contrast primary action plus a fixed cancel/recover action, requires explicit CA/proxy consent, runs capture off the UI thread, reports only safe stage metadata, and distinguishes verified restoration from an unverified restoration error.
 - Application startup consumes a protected pending journal before creating the main window; close waits for capture cancellation and restoration. The portable archive exposes both double-click recovery scripts beside the application.
 - A read-only UI render confirmed the P0 controls are visible. It also measured the still-unfixed top-level height at 1,344 px, so the separate window/DPI checkpoint remains mandatory after real P0.

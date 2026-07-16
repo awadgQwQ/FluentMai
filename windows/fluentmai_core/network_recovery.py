@@ -468,6 +468,9 @@ def _is_expected_capture_state(
         and current.proxy_server == proxy_address
         and current.auto_config_url is None
         and current.proxy_override == "<local>"
-        and current.auto_detect == 0
+        # Windows may discard an explicit AutoDetect=0 value when WinINET is
+        # notified.  A missing value is the equivalent persisted state here;
+        # AutoConfigURL is still required to be absent above.
+        and current.auto_detect in {0, None}
         and current.winhttp_fingerprint == original.winhttp_fingerprint
     )

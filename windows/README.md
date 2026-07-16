@@ -75,7 +75,8 @@ The build includes application code, `assets/`, `locales/`, the default non-secr
 
 ## Known limitations
 
-- The automatic capture backend, packaged helper, one-click import worker, cancellation path, startup crash recovery, and close-time recovery wait are implemented and mock-validated. Real-device validation still stops safely at the required Windows current-user root-certificate trust confirmation; no CA was installed and no score was imported at that checkpoint.
+- The automatic capture backend, packaged helper, one-click import worker, cancellation path, startup crash recovery, and close-time recovery wait are implemented and real-account validated. The helper injects a no-store same-origin page that lets the authenticated WeChat WebView fetch five difficulty pages and return them only to a nonce-protected local interception path; no Cookie replay or raw-page persistence is used.
+- Before capture, WeChat's `Settings > General > Open third-party web pages with the system default browser` option must be off so the official-account menu opens inside WeChat. Restore the preference after import if it was previously on.
 - The manual Wahlap flow still needs broader real-account validation.
 - The upload business layer exists, but the upload UI is not fully wired.
 - The legacy dashboard still depends on public third-party player data; local scores are the source of truth for the newer local pages.

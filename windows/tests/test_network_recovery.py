@@ -63,6 +63,33 @@ def test_guard_restores_exact_snapshot_and_clears_journal(tmp_path):
     assert not journal.path.exists()
 
 
+def test_guard_accepts_windows_discarding_disabled_auto_detect_value(tmp_path):
+    snapshot = _snapshot()
+
+    class MissingDisabledAutoDetectBackend(NoopSystemProxyBackend):
+        def apply(self, proxy_server: str) -> None:
+            super().apply(proxy_server)
+            self.current = ProxySnapshot(
+                proxy_enable=self.current.proxy_enable,
+                proxy_server=self.current.proxy_server,
+                auto_config_url=self.current.auto_config_url,
+                proxy_override=self.current.proxy_override,
+                auto_detect=None,
+                winhttp_fingerprint=self.current.winhttp_fingerprint,
+                winhttp_dump_b64=self.current.winhttp_dump_b64,
+            )
+
+    backend = MissingDisabledAutoDetectBackend(snapshot)
+    journal = RecoveryJournal(tmp_path / "recovery.bin")
+    guard = NetworkCaptureGuard(backend, journal)
+
+    guard.activate("127.0.0.1:43210")
+    assert journal.path.exists()
+
+    assert guard.restore() == snapshot
+    assert not journal.path.exists()
+
+
 def test_apply_failure_restores_before_clearing_journal(tmp_path):
     class FailingBackend(NoopSystemProxyBackend):
         def apply(self, proxy_server: str) -> None:

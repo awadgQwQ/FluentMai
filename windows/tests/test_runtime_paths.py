@@ -49,6 +49,7 @@ def test_legacy_database_is_copied_and_migrated_without_changing_source(monkeypa
     target = runtime_paths.prepare_database_path()
     assert target == data_root / "data" / "maimai_data.db"
     assert target.is_file()
+    assert not list(target.parent.glob(".*.migrating-*.tmp*"))
     assert hashlib.sha256(legacy.read_bytes()).hexdigest() == before
 
     migrated = database.connect()

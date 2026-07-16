@@ -10,12 +10,17 @@ import sys
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
+from mitmproxy import http
 import pytest
-import requests
 
 from capture_helper import certificate
 from capture_helper.ipc import encode_event, receive_event
-from capture_helper.main import WahlapCaptureAddon
+from capture_helper.main import (
+    LOCAL_CAPTURE_PREFIX,
+    TARGET_HOST,
+    WahlapCaptureAddon,
+    _replace_home_response,
+)
 
 
 SCORE_HTML = """
@@ -35,14 +40,6 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
     finally:
         sock.close()
-
-
-def _response(body: str = SCORE_HTML, status: int = 200) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status
-    response._content = body.encode("utf-8")
-    response.encoding = "utf-8"
-    return response
 
 
 def test_ca_store_has_fluentmai_identity_and_wahlap_name_constraint(monkeypatch, tmp_path):
@@ -87,7 +84,32 @@ def test_ipc_frame_round_trip_uses_length_prefix():
         right.close()
 
 
-def test_difficulty_fetch_retries_are_finite_and_reported():
+def test_intercepted_home_is_replaced_with_no_store_local_prompt():
+    response = http.Response.make(
+        200,
+        b"<html>private fixture home</html>",
+        {"content-type": "text/html", "content-encoding": "gzip"},
+    )
+
+    _replace_home_response(response, "fixture-nonce", 0)
+
+    assert b"private fixture home" not in response.content
+    assert b"FluentMai" in response.content
+    assert b"fixture-nonce" in response.content
+    assert b"https://" not in response.content
+    assert response.content.count(b"musicSort/search") == 1
+    assert response.headers["cache-control"] == "no-store"
+    assert "content-encoding" not in response.headers
+
+
+def test_browser_pages_are_short_circuited_locally_and_complete_in_memory():
+    class Master:
+        def __init__(self):
+            self.stopped = False
+
+        def shutdown(self):
+            self.stopped = True
+
     class Ipc:
         def __init__(self):
             self.events = []
@@ -95,62 +117,41 @@ def test_difficulty_fetch_retries_are_finite_and_reported():
         async def send(self, event):
             self.events.append(event)
 
-    class Session:
-        def __init__(self):
-            self.calls = 0
-
-        def get(self, *_args, **_kwargs):
-            self.calls += 1
-            if self.calls < 3:
-                raise requests.Timeout()
-            return _response()
-
+    master = Master()
     ipc = Ipc()
-    session = Session()
     addon = WahlapCaptureAddon(
-        master=object(),
+        master=master,
         ipc=ipc,
         request_timeout=1,
         wait_timeout=1,
-        retries=2,
+        retries=0,
         retry_delay=0,
     )
 
-    response, attempt, _elapsed = asyncio.run(addon._fetch_one(session, 3))
+    async def collect():
+        for difficulty in range(5):
+            flow = http.HTTPFlow(None, None)
+            flow.request = http.Request.make(
+                "POST",
+                f"https://{TARGET_HOST}{LOCAL_CAPTURE_PREFIX}/page/{difficulty}"
+                f"?nonce={addon.capture_nonce}",
+                SCORE_HTML.encode("utf-8"),
+                {"x-fluentmai-status": "200", "content-type": "text/plain"},
+            )
+            await addon.request(flow)
+            assert flow.response is not None
+            assert flow.response.status_code == 204
 
-    assert response.status_code == 200
-    assert attempt == 3
-    assert session.calls == 3
-    assert [event["stage"] for event in ipc.events] == ["retrying_difficulty", "retrying_difficulty"]
+    asyncio.run(collect())
 
-
-def test_difficulty_fetch_stops_after_configured_attempts():
-    class Ipc:
-        async def send(self, _event):
-            return None
-
-    class Session:
-        def __init__(self):
-            self.calls = 0
-
-        def get(self, *_args, **_kwargs):
-            self.calls += 1
-            raise requests.Timeout()
-
-    session = Session()
-    addon = WahlapCaptureAddon(
-        master=object(),
-        ipc=Ipc(),
-        request_timeout=1,
-        wait_timeout=1,
-        retries=2,
-        retry_delay=0,
-    )
-
-    with pytest.raises(RuntimeError, match="network_timeout"):
-        asyncio.run(addon._fetch_one(session, 3))
-
-    assert session.calls == 3
+    pages = [event for event in ipc.events if event.get("type") == "page"]
+    assert [event["difficulty"] for event in pages] == list(range(5))
+    assert all(event["body"] == SCORE_HTML for event in pages)
+    assert ipc.events[-1]["type"] == "complete"
+    assert ipc.events[-1]["captured_pages"] == 5
+    assert master.stopped is True
+    assert addon.browser_difficulties == set()
+    assert addon.browser_bytes == 0
 
 
 def test_helper_starts_loopback_proxy_without_installing_ca(tmp_path):

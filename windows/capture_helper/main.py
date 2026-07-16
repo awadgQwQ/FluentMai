@@ -8,12 +8,12 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import sys
-import time
+from urllib.parse import parse_qs, urlsplit
 
 from mitmproxy import http, options
 from mitmproxy.tools.dump import DumpMaster
-import requests
 
 from capture_helper import HELPER_VERSION
 from capture_helper.certificate import (
@@ -26,32 +26,20 @@ from capture_helper.ipc import AsyncIpcClient
 
 TARGET_HOST = "maimai.wahlap.com"
 HOME_PREFIX = "/maimai-mobile/home"
-RECORD_REFERER = "https://maimai.wahlap.com/maimai-mobile/record/"
-DIFFICULTY_URL = (
-    "https://maimai.wahlap.com/maimai-mobile/record/musicSort/search/"
-    "?search=A&sort=1&playCheck=on&diff={difficulty}"
-)
-HEADER_ALLOWLIST = {
-    "user-agent",
-    "accept",
-    "accept-language",
-    "sec-ch-ua",
-    "sec-ch-ua-mobile",
-    "sec-ch-ua-platform",
-    "sec-fetch-site",
-    "sec-fetch-mode",
-    "sec-fetch-user",
-    "sec-fetch-dest",
-    "upgrade-insecure-requests",
-}
+LOCAL_CAPTURE_PREFIX = "/maimai-mobile/__fluentmai_local_capture__"
+MAX_BROWSER_PAGE_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
 class CapturedBrowserSession:
-    cookies: dict[str, str]
-    headers: dict[str, str]
     home_html: str
     home_status: int
+    request_cookie_count: int = 0
+    response_cookie_count: int = 0
+    response_cookie_deletion_count: int = 0
+    browser_total_header_count: int = 0
+    browser_authorization_present: bool = False
+    browser_header_count: int = 0
 
 
 class WahlapCaptureAddon:
@@ -73,6 +61,11 @@ class WahlapCaptureAddon:
         self.retry_delay = retry_delay
         self.started = False
         self.timeout_task: asyncio.Task | None = None
+        self.browser_timeout_task: asyncio.Task | None = None
+        self.capture_nonce = secrets.token_urlsafe(24)
+        self.browser_difficulties: set[int] = set()
+        self.browser_bytes = 0
+        self.browser_lock = asyncio.Lock()
 
     async def running(self) -> None:
         await self.ipc.send(
@@ -89,21 +82,113 @@ class WahlapCaptureAddon:
             return
         if flow.request.pretty_host.lower() != TARGET_HOST:
             return
-        if not flow.request.path.startswith(HOME_PREFIX):
+        if urlsplit(flow.request.path).path.rstrip("/") != HOME_PREFIX:
             return
 
         self.started = True
         if self.timeout_task:
             self.timeout_task.cancel()
         captured = _capture_browser_session(flow)
+        _replace_home_response(flow.response, self.capture_nonce, self.retry_delay)
         await self.ipc.send(
             {
                 "type": "session_captured",
                 "home_status": captured.home_status,
                 "home_bytes": len(captured.home_html.encode("utf-8")),
+                "session_cookie_count": captured.request_cookie_count,
+                "request_cookie_count": captured.request_cookie_count,
+                "response_cookie_count": captured.response_cookie_count,
+                "response_cookie_deletion_count": captured.response_cookie_deletion_count,
+                "browser_header_count": captured.browser_header_count,
+                "browser_total_header_count": captured.browser_total_header_count,
+                "browser_authorization_present": captured.browser_authorization_present,
+                "home_auth_failure_marker": _looks_like_auth_failure(captured.home_html),
+                "home_record_link_marker": "/maimai-mobile/record/" in captured.home_html,
+                "home_player_data_marker": "playerData" in captured.home_html,
+                "home_rating_marker": "rating" in captured.home_html.lower(),
             }
         )
-        asyncio.create_task(self._fetch_pages(captured))
+        await self.ipc.send(
+            {
+                "type": "page",
+                "page_kind": "home",
+                "http_status": captured.home_status,
+                "body": captured.home_html,
+                "bytes": len(captured.home_html.encode("utf-8")),
+            }
+        )
+        del captured
+        self.browser_timeout_task = asyncio.create_task(self._browser_capture_timeout())
+
+    async def request(self, flow: http.HTTPFlow) -> None:
+        if flow.request.pretty_host.lower() != TARGET_HOST:
+            return
+        parsed = urlsplit(flow.request.path)
+        if not parsed.path.startswith(LOCAL_CAPTURE_PREFIX + "/"):
+            return
+
+        flow.response = http.Response.make(404, b"", {"cache-control": "no-store"})
+        query = parse_qs(parsed.query)
+        supplied_nonce = (query.get("nonce") or [""])[0]
+        if not secrets.compare_digest(supplied_nonce, self.capture_nonce):
+            return
+        if parsed.path == LOCAL_CAPTURE_PREFIX + "/error":
+            flow.response = http.Response.make(204, b"", {"cache-control": "no-store"})
+            await self.ipc.send({"type": "error", "category": "browser_capture_failed"})
+            self.master.shutdown()
+            return
+        match = re.fullmatch(re.escape(LOCAL_CAPTURE_PREFIX) + r"/page/([0-4])", parsed.path)
+        if flow.request.method.upper() != "POST" or not match:
+            return
+        flow.response = http.Response.make(204, b"", {"cache-control": "no-store"})
+        content = flow.request.raw_content or b""
+        if len(content) > MAX_BROWSER_PAGE_BYTES:
+            await self.ipc.send({"type": "error", "category": "browser_capture_too_large"})
+            self.master.shutdown()
+            return
+        body = flow.request.get_text(strict=False)
+        try:
+            browser_status = int(flow.request.headers.get("x-fluentmai-status", "0"))
+        except ValueError:
+            browser_status = 0
+        if browser_status != 200 or not _looks_like_score_page(body):
+            await self.ipc.send(
+                {"type": "error", "category": "browser_capture_unexpected_page"}
+            )
+            self.master.shutdown()
+            return
+        difficulty = int(match.group(1))
+        async with self.browser_lock:
+            if difficulty in self.browser_difficulties:
+                return
+            self.browser_difficulties.add(difficulty)
+            self.browser_bytes += len(content)
+            await self.ipc.send(
+                {
+                    "type": "page",
+                    "page_kind": "difficulty",
+                    "difficulty": difficulty,
+                    "http_status": browser_status,
+                    "body": body,
+                    "bytes": len(content),
+                    "attempt": 1,
+                    "elapsed_ms": 0,
+                }
+            )
+            if len(self.browser_difficulties) == 5:
+                if self.browser_timeout_task:
+                    self.browser_timeout_task.cancel()
+                await self.ipc.send(
+                    {
+                        "type": "complete",
+                        "captured_pages": 5,
+                        "captured_bytes": self.browser_bytes,
+                    }
+                )
+                self.browser_difficulties.clear()
+                self.browser_bytes = 0
+                await asyncio.sleep(0.1)
+                self.master.shutdown()
 
     async def _capture_timeout(self) -> None:
         try:
@@ -114,155 +199,100 @@ class WahlapCaptureAddon:
         except asyncio.CancelledError:
             return
 
-    async def _fetch_pages(self, captured: CapturedBrowserSession) -> None:
-        session = _session_from_capture(captured)
-        page_count = 0
-        parsed_bytes = 0
+    async def _browser_capture_timeout(self) -> None:
         try:
-            await self.ipc.send(
-                {
-                    "type": "page",
-                    "page_kind": "home",
-                    "http_status": captured.home_status,
-                    "body": captured.home_html,
-                    "bytes": len(captured.home_html.encode("utf-8")),
-                }
-            )
-            captured = CapturedBrowserSession({}, {}, "", captured.home_status)
-            for difficulty in range(5):
+            await asyncio.sleep(self.wait_timeout)
+            if len(self.browser_difficulties) < 5:
                 await self.ipc.send(
-                    {
-                        "type": "progress",
-                        "stage": "fetching_difficulty",
-                        "difficulty": difficulty,
-                        "current": difficulty,
-                        "total": 5,
-                    }
+                    {"type": "error", "category": "browser_capture_timeout"}
                 )
-                response, attempt, elapsed_ms = await self._fetch_one(session, difficulty)
-                body = response.text
-                size = len(body.encode("utf-8"))
-                page_count += 1
-                parsed_bytes += size
-                await self.ipc.send(
-                    {
-                        "type": "page",
-                        "page_kind": "difficulty",
-                        "difficulty": difficulty,
-                        "http_status": response.status_code,
-                        "body": body,
-                        "bytes": size,
-                        "attempt": attempt,
-                        "elapsed_ms": elapsed_ms,
-                    }
-                )
-                del body, response
-                if difficulty < 4 and self.retry_delay > 0:
-                    await asyncio.sleep(self.retry_delay)
-            await self.ipc.send(
-                {
-                    "type": "complete",
-                    "captured_pages": page_count,
-                    "captured_bytes": parsed_bytes,
-                }
-            )
-        except Exception as exc:
-            await self.ipc.send(
-                {
-                    "type": "error",
-                    "category": _safe_error_category(exc),
-                }
-            )
-        finally:
-            session.close()
-            await asyncio.sleep(0.1)
-            self.master.shutdown()
-
-    async def _fetch_one(
-        self,
-        session: requests.Session,
-        difficulty: int,
-    ) -> tuple[requests.Response, int, int]:
-        last_category = "network_error"
-        for attempt in range(1, self.retries + 2):
-            started = time.perf_counter()
-            try:
-                response = await asyncio.to_thread(
-                    session.get,
-                    DIFFICULTY_URL.format(difficulty=difficulty),
-                    timeout=self.request_timeout,
-                )
-                elapsed_ms = round((time.perf_counter() - started) * 1000)
-                if response.status_code == 200 and _looks_like_score_page(response.text):
-                    return response, attempt, elapsed_ms
-                last_category = (
-                    "authentication_expired"
-                    if _looks_like_auth_failure(response.text)
-                    else "wahlap_challenge_or_unexpected_page"
-                )
-            except requests.Timeout:
-                last_category = "network_timeout"
-            except requests.RequestException:
-                last_category = "network_error"
-            if attempt <= self.retries:
-                await self.ipc.send(
-                    {
-                        "type": "progress",
-                        "stage": "retrying_difficulty",
-                        "difficulty": difficulty,
-                        "attempt": attempt,
-                        "max_attempts": self.retries + 1,
-                        "category": last_category,
-                    }
-                )
-                await asyncio.sleep(self.retry_delay)
-        raise RuntimeError(last_category)
-
+                self.browser_difficulties.clear()
+                self.browser_bytes = 0
+                self.master.shutdown()
+        except asyncio.CancelledError:
+            return
 
 def _capture_browser_session(flow: http.HTTPFlow) -> CapturedBrowserSession:
-    cookies = _parse_cookie_header(flow.request.headers.get("cookie", ""))
+    raw_headers = list(flow.request.headers.items())
+    request_cookie_count, _request_deletions = _cookie_metadata(
+        flow.request.headers.get("cookie", "")
+    )
+    response_cookie_count = 0
+    response_cookie_deletion_count = 0
     for header in flow.response.headers.get_all("set-cookie"):
-        cookies.update(_parse_set_cookie(header))
-    headers = {
-        name: value
-        for name, value in flow.request.headers.items()
-        if name.lower() in HEADER_ALLOWLIST
-    }
-    headers["Referer"] = RECORD_REFERER
+        count, deletions = _cookie_metadata(header)
+        response_cookie_count += count
+        response_cookie_deletion_count += deletions
     return CapturedBrowserSession(
-        cookies=cookies,
-        headers=headers,
         home_html=flow.response.get_text(strict=False),
         home_status=flow.response.status_code,
+        request_cookie_count=request_cookie_count,
+        response_cookie_count=response_cookie_count,
+        response_cookie_deletion_count=response_cookie_deletion_count,
+        browser_total_header_count=len(raw_headers),
+        browser_authorization_present=any(
+            str(name).lower() == "authorization" for name, _value in raw_headers
+        ),
+        browser_header_count=len(raw_headers),
     )
 
 
-def _session_from_capture(captured: CapturedBrowserSession) -> requests.Session:
-    session = requests.Session()
-    session.trust_env = False
-    session.headers.update(captured.headers)
-    session.headers["Referer"] = RECORD_REFERER
-    for name, value in captured.cookies.items():
-        session.cookies.set(name, value, domain=TARGET_HOST, path="/")
-    return session
-
-
-def _parse_cookie_header(value: str) -> dict[str, str]:
+def _cookie_metadata(value: str) -> tuple[int, int]:
     cookie = SimpleCookie()
     try:
         cookie.load(value)
     except Exception:
-        return {}
-    return {name: morsel.value for name, morsel in cookie.items()}
+        return 0, 0
+    deletions = 0
+    for morsel in cookie.values():
+        max_age = str(morsel["max-age"] or "").strip()
+        if max_age:
+            try:
+                deletions += int(max_age) <= 0
+                continue
+            except ValueError:
+                pass
+        deletions += bool(morsel["expires"] and not morsel.value)
+    return len(cookie), deletions
 
 
-def _parse_set_cookie(value: str) -> dict[str, str]:
-    cookie = SimpleCookie()
-    try:
-        cookie.load(value)
-    except Exception:
-        return {}
-    return {name: morsel.value for name, morsel in cookie.items()}
+def _capture_prompt_html(nonce: str, retry_delay: float) -> str:
+    delay_ms = max(250, min(round(retry_delay * 1000), 5000))
+    nonce_js = json.dumps(nonce)
+    return f"""<!doctype html><meta charset=\"utf-8\">
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+<title>FluentMai</title><body><p id=\"status\">FluentMai is importing local Wahlap scores.</p>
+<script>(async()=>{{
+const nonce={nonce_js};
+const status=document.getElementById('status');
+const base='/maimai-mobile/record/musicSort/search/?search=A&sort=1&playCheck=on&diff=';
+const sink='{LOCAL_CAPTURE_PREFIX}/page/';
+try{{
+ for(let difficulty=0;difficulty<5;difficulty++){{
+  status.textContent='FluentMai local import: '+(difficulty+1)+'/5';
+  const response=await fetch(base+difficulty,{{credentials:'include',cache:'no-store'}});
+  const body=await response.text();
+  const ack=await fetch(sink+difficulty+'?nonce='+encodeURIComponent(nonce),{{
+   method:'POST',cache:'no-store',headers:{{'Content-Type':'text/plain;charset=utf-8','X-FluentMai-Status':String(response.status)}},body
+  }});
+  if(!ack.ok)throw new Error('local capture rejected');
+  if(difficulty<4)await new Promise(resolve=>setTimeout(resolve,{delay_ms}));
+ }}
+ status.textContent='FluentMai local import complete.';
+}}catch(_error){{
+ status.textContent='FluentMai local import failed.';
+ await fetch('{LOCAL_CAPTURE_PREFIX}/error?nonce='+encodeURIComponent(nonce),{{method:'POST',cache:'no-store'}}).catch(()=>{{}});
+}}
+}})();</script></body>"""
+
+
+def _replace_home_response(response: http.Response, nonce: str, retry_delay: float) -> None:
+    response.headers.pop("content-encoding", None)
+    response.headers.pop("content-security-policy", None)
+    response.headers.pop("content-security-policy-report-only", None)
+    response.set_text(_capture_prompt_html(nonce, retry_delay))
+    response.headers["content-type"] = "text/html; charset=utf-8"
+    response.headers["cache-control"] = "no-store"
 
 
 def _looks_like_score_page(html: str) -> bool:
@@ -286,6 +316,10 @@ def _safe_error_category(exc: Exception) -> str:
         "network_timeout",
         "authentication_expired",
         "wahlap_challenge_or_unexpected_page",
+        "browser_capture_failed",
+        "browser_capture_timeout",
+        "browser_capture_too_large",
+        "browser_capture_unexpected_page",
         "ca_installation_timeout",
         "ca_installation_failed",
         "ca_installation_verification_failed",

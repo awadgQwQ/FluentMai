@@ -25,7 +25,7 @@ python scripts/windows/smoke_capture_helper.py --helper build/windows/dist/Fluen
 
 The Windows workflow runs only for changes under `windows/`, `scripts/windows/`, or its own workflow file. It uploads a development artifact after tests, compilation, source startup, packaging, packaged startup, packaged-helper IPC startup, and content checks succeed.
 
-The capture foundation is local-only: a random authenticated loopback helper returns Wahlap pages in memory, the main process parses and atomically imports them, and a DPAPI-protected journal restores the exact WinINET/WinHTTP baseline after success, cancellation, failure, close, or the next startup. The import center now has an explicit one-click consent flow, cancellable worker, safe progress categories, and recovery guidance. The first real-account validation still stopped before proxy activation because Windows required a human root-certificate trust confirmation.
+The capture foundation is local-only: a random authenticated loopback helper returns Wahlap pages in memory, the main process parses and atomically imports them, and a DPAPI-protected journal restores the exact WinINET/WinHTTP baseline after success, cancellation, failure, close, or the next startup. The authenticated WeChat WebView fetches all five difficulty pages from a no-store same-origin prompt and returns them to a nonce-protected path that the helper short-circuits locally; Cookies and raw pages are never persisted. Real-account and packaged-helper validation imported 1,632 local score rows, produced a 35/15 B35/B15 snapshot, and repeated twice without creating duplicate scores.
 
 ## Data, artwork, and release limits
 

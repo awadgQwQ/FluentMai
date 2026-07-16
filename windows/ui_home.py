@@ -46,6 +46,10 @@ CAPTURE_STAGE_TEXT = {
 }
 
 CAPTURE_ERROR_TEXT = {
+    "browser_capture_failed": "微信内置页面抓取失败。网络已恢复，请确认关闭‘使用系统默认浏览器打开第三方网页’后重试。",
+    "browser_capture_timeout": "等待微信内置页面返回成绩超时。网络已恢复，请确认微信未被关闭并重试。",
+    "browser_capture_too_large": "微信返回的单页数据超出安全上限。网络已恢复，未写入本地数据库。",
+    "browser_capture_unexpected_page": "微信返回的不是有效成绩页面。网络已恢复，请重新进入‘我的记录 → 舞萌DX’。",
     "cancelled": "已取消；临时组件已停止，网络已恢复。",
     "capture_timeout": "等待微信个人记录页面超时。网络已恢复，可重新开始。",
     "authentication_expired": "微信中的舞萌登录状态已失效。网络已恢复，请重新登录后再试。",
@@ -408,6 +412,8 @@ class HomeInterface(QWidget):
             "开始本地微信抓取",
             "FluentMai 将安装仅用于 Wahlap 的当前用户根证书“FluentMai Local Capture CA”，"
             "并临时把当前用户系统代理指向随机本机端口。\n\n"
+            "开始前，请在微信‘设置 > 通用’中关闭‘使用系统默认浏览器打开第三方网页’，"
+            "以便个人记录在微信内置页面中打开；导入结束后可恢复该开关。\n\n"
             "请核对 Windows 证书提示中的名称并亲自确认。抓取完成、取消或失败后，"
             "FluentMai 会终止辅助组件并恢复开始前的代理、PAC、例外列表与 WinHTTP 状态。",
             self,

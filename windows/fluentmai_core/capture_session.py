@@ -169,6 +169,17 @@ class LocalCaptureController:
                         {
                             "home_status": int(event.get("home_status") or 0),
                             "home_bytes": int(event.get("home_bytes") or 0),
+                            "session_cookie_count": int(event.get("session_cookie_count") or 0),
+                            "request_cookie_count": int(event.get("request_cookie_count") or 0),
+                            "response_cookie_count": int(event.get("response_cookie_count") or 0),
+                            "response_cookie_deletion_count": int(event.get("response_cookie_deletion_count") or 0),
+                            "browser_header_count": int(event.get("browser_header_count") or 0),
+                            "browser_total_header_count": int(event.get("browser_total_header_count") or 0),
+                            "browser_authorization_present": bool(event.get("browser_authorization_present")),
+                            "home_auth_failure_marker": bool(event.get("home_auth_failure_marker")),
+                            "home_record_link_marker": bool(event.get("home_record_link_marker")),
+                            "home_player_data_marker": bool(event.get("home_player_data_marker")),
+                            "home_rating_marker": bool(event.get("home_rating_marker")),
                         },
                     )
                 elif event_type == "progress":
