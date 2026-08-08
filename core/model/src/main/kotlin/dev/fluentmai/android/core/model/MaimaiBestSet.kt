@@ -25,9 +25,11 @@ data class MaimaiBestSet(
 fun ChartRecord?.ratingBucket(currentVersion: MaimaiCurrentVersion?): MaimaiRatingBucket {
     val currentVersionId = currentVersion?.majorVersion?.id ?: return MaimaiRatingBucket.INELIGIBLE
     val version = this?.chartVersion?.takeIf { it > 0 } ?: return MaimaiRatingBucket.INELIGIBLE
+    val currentMajorVersionId = maimaiVersionReferenceFor(currentVersionId)?.versionId ?: currentVersionId
+    val chartMajorVersionId = maimaiVersionReferenceFor(version)?.versionId ?: version
     return when {
-        version == currentVersionId -> MaimaiRatingBucket.CURRENT
-        version < currentVersionId -> MaimaiRatingBucket.OLD
+        chartMajorVersionId == currentMajorVersionId -> MaimaiRatingBucket.CURRENT
+        chartMajorVersionId < currentMajorVersionId -> MaimaiRatingBucket.OLD
         else -> MaimaiRatingBucket.INELIGIBLE
     }
 }

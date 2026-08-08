@@ -84,7 +84,7 @@ class RatingRecommendationsTest {
         val current = playerRecord(2, chartVersion = 25_500, constant = 13.5, achievement = 99.0)
         val sssPlus = playerRecord(3, chartVersion = 25_500, constant = 13.5, achievement = 100.5)
         val disabled = playerRecord(4, chartVersion = 25_500, constant = 13.5, achievement = 99.0, disabled = true)
-        val future = playerRecord(5, chartVersion = 25_501, constant = 13.5, achievement = 99.0)
+        val future = playerRecord(5, chartVersion = 26_000, constant = 13.5, achievement = 99.0)
 
         val result = buildRatingRecommendations(
             records = listOf(old, current, sssPlus, disabled, future),
