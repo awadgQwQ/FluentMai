@@ -7,14 +7,14 @@ import kotlin.test.assertTrue
 
 class MaimaiBestSetTest {
     @Test
-    fun futureCatalogRowsDoNotEmptyOrRedefineCurrentBest15() {
+    fun futureMajorVersionRowsDoNotEmptyOrRedefineCurrentBest15() {
         val current = MaimaiCurrentVersion(
             majorVersion = MaimaiMajorVersion(25500, "舞萌DX 2026"),
             source = MaimaiCurrentVersionSource.CATALOG_VERSION_TABLE,
         )
         val oldScores = (0 until 40).map { ratedScore("old-$it", 25000, 400 - it) }
         val currentScores = (0 until 20).map { ratedScore("current-$it", 25500, 500 - it) }
-        val futureScores = (0 until 5).map { ratedScore("future-$it", 25501, 900 - it) }
+        val futureScores = (0 until 5).map { ratedScore("future-$it", 26000, 900 - it) }
         val input = oldScores + currentScores + futureScores
 
         val result = buildMaimaiBestSet(input, current)
@@ -23,10 +23,29 @@ class MaimaiBestSetTest {
         assertEquals(35, result.oldBest.size)
         assertTrue(result.newBest.all { it.chart?.chartVersion == 25500 })
         assertTrue(result.oldBest.all { (it.chart?.chartVersion ?: Int.MAX_VALUE) < 25500 })
-        assertFalse(result.all.any { it.chart?.chartVersion == 25501 })
+        assertFalse(result.all.any { it.chart?.chartVersion == 26000 })
         assertEquals(futureScores, result.ineligible)
         assertTrue(result.rating > 0)
         assertEquals(65, input.size)
+    }
+
+    @Test
+    fun currentMajorVersionContentBatchesBelongToCurrentBest15() {
+        val current = MaimaiCurrentVersion(
+            majorVersion = MaimaiMajorVersion(25500, "舞萌DX 2026"),
+            source = MaimaiCurrentVersionSource.CATALOG_VERSION_TABLE,
+        )
+        val scores = listOf(
+            ratedScore("launch", chartVersion = 25500, rating = 300),
+            ratedScore("update-1", chartVersion = 25501, rating = 301),
+            ratedScore("update-2", chartVersion = 25502, rating = 302),
+        )
+
+        val result = buildMaimaiBestSet(scores, current)
+
+        assertEquals(scores.reversed(), result.newBest)
+        assertTrue(result.oldBest.isEmpty())
+        assertTrue(result.ineligible.isEmpty())
     }
 
     @Test
