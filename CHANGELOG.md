@@ -2,6 +2,16 @@
 
 All notable user-facing changes to FluentMai are recorded here.
 
+## [0.2.1-beta] - 2026-08-10
+
+### English
+
+- Fixed Best 15 to include scores from the current content batch, so the latest charts now count toward Rating.
+
+### 简体中文
+
+- 修复 Best 15 未纳入当前内容批次的问题，最新谱面成绩现在会计入 Rating。
+
 ## [0.2.0-beta] - 2026-07-15
 
 ### English
