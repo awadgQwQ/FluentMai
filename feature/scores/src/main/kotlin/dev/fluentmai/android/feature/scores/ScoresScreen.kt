@@ -4,6 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -32,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
@@ -40,6 +46,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +63,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -219,106 +227,125 @@ fun ChartQueryScreen(
         initialFirstVisibleItemIndex = queryViewModel.restoredScrollIndex,
         initialFirstVisibleItemScrollOffset = queryViewModel.restoredScrollOffset,
     )
+    val scope = rememberCoroutineScope()
+    val showScrollToTop by remember {
+        derivedStateOf { gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 0 }
+    }
     LaunchedEffect(queryViewModel, gridState) {
         snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
             .distinctUntilChanged()
             .collect { (index, offset) -> queryViewModel.saveScroll(index, offset) }
     }
 
-    LazyVerticalGrid(
-        modifier = modifier.fillMaxSize(),
-        state = gridState,
-        columns = GridCells.Adaptive(340.dp),
-        contentPadding = PaddingValues(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            ChartHeader(
-                chartCount = charts.size,
-                visibleCount = uiState.result.matchingCount,
-                isLoading = isLoading,
-                isFiltering = uiState.isIndexing || uiState.isFiltering,
-                onRefresh = onRefresh,
-            )
-        }
-        if (playedPresetActive) {
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            modifier = Modifier.fillMaxSize(),
+            state = gridState,
+            columns = GridCells.Adaptive(340.dp),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                PlayedPresetBanner(
+                ChartHeader(
+                    chartCount = charts.size,
+                    visibleCount = uiState.result.matchingCount,
+                    isLoading = isLoading,
+                    isFiltering = uiState.isIndexing || uiState.isFiltering,
+                    onRefresh = onRefresh,
+                )
+            }
+            if (playedPresetActive) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    PlayedPresetBanner(
+                        onReset = {
+                            queryViewModel.resetFilters()
+                            onDismissPlayedPreset()
+                        },
+                    )
+                }
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                ChartFilters(
+                    searchQuery = filters.searchQuery,
+                    onSearchQueryChanged = queryViewModel::updateSearchQuery,
+                    levelQuery = filters.levelQuery,
+                    onLevelQueryChanged = queryViewModel::updateLevelQuery,
+                    selectedDifficulty = filters.difficulty,
+                    onDifficultyChanged = queryViewModel::updateDifficulty,
+                    genreFilter = filters.genre,
+                    onGenreFilterChanged = queryViewModel::updateGenre,
+                    versionFilter = filters.version,
+                    onVersionFilterChanged = queryViewModel::updateVersion,
+                    statusFilter = filters.status,
+                    onStatusFilterChanged = queryViewModel::updateStatus,
+                    songType = filters.songType,
+                    onSongTypeChanged = queryViewModel::updateSongType,
+                    constantMin = filters.constantMin,
+                    constantMax = filters.constantMax,
+                    onConstantRangeChanged = queryViewModel::updateConstantRange,
+                    achievementMin = filters.achievementMin,
+                    achievementMax = filters.achievementMax,
+                    onAchievementRangeChanged = queryViewModel::updateAchievementRange,
+                    rankFilter = filters.rank,
+                    onRankChanged = queryViewModel::updateRank,
+                    fullCombo = filters.fullCombo,
+                    onFullComboChanged = queryViewModel::updateFullCombo,
+                    fullSync = filters.fullSync,
+                    onFullSyncChanged = queryViewModel::updateFullSync,
+                    sortMode = filters.sort,
+                    onSortModeChanged = queryViewModel::updateSort,
+                    hasActiveFilters = filters != ChartQueryFilters(),
+                    activeAdvancedFilters = filters.activeAdvancedLabels(),
                     onReset = {
                         queryViewModel.resetFilters()
-                        onDismissPlayedPreset()
+                        if (playedPresetActive) onDismissPlayedPreset()
                     },
                 )
             }
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            ChartFilters(
-                searchQuery = filters.searchQuery,
-                onSearchQueryChanged = queryViewModel::updateSearchQuery,
-                levelQuery = filters.levelQuery,
-                onLevelQueryChanged = queryViewModel::updateLevelQuery,
-                selectedDifficulty = filters.difficulty,
-                onDifficultyChanged = queryViewModel::updateDifficulty,
-                genreFilter = filters.genre,
-                onGenreFilterChanged = queryViewModel::updateGenre,
-                versionFilter = filters.version,
-                onVersionFilterChanged = queryViewModel::updateVersion,
-                statusFilter = filters.status,
-                onStatusFilterChanged = queryViewModel::updateStatus,
-                songType = filters.songType,
-                onSongTypeChanged = queryViewModel::updateSongType,
-                constantMin = filters.constantMin,
-                constantMax = filters.constantMax,
-                onConstantRangeChanged = queryViewModel::updateConstantRange,
-                achievementMin = filters.achievementMin,
-                achievementMax = filters.achievementMax,
-                onAchievementRangeChanged = queryViewModel::updateAchievementRange,
-                rankFilter = filters.rank,
-                onRankChanged = queryViewModel::updateRank,
-                fullCombo = filters.fullCombo,
-                onFullComboChanged = queryViewModel::updateFullCombo,
-                fullSync = filters.fullSync,
-                onFullSyncChanged = queryViewModel::updateFullSync,
-                sortMode = filters.sort,
-                onSortModeChanged = queryViewModel::updateSort,
-                hasActiveFilters = filters != ChartQueryFilters(),
-                activeAdvancedFilters = filters.activeAdvancedLabels(),
-                onReset = {
-                    queryViewModel.resetFilters()
-                    if (playedPresetActive) onDismissPlayedPreset()
-                },
-            )
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            ChartStatsSummary(stats = uiState.result.stats, isFiltering = uiState.isIndexing || uiState.isFiltering)
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                ChartStatsSummary(stats = uiState.result.stats, isFiltering = uiState.isIndexing || uiState.isFiltering)
+            }
+
+            if (charts.isEmpty() && !isLoading) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    EmptyState(text = "还没有曲库数据")
+                }
+            } else if (uiState.result.items.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    EmptyState(
+                        text = if (isLoading || uiState.isIndexing || uiState.isFiltering) {
+                            "正在准备谱面结果"
+                        } else {
+                            "没有匹配的谱面"
+                        },
+                    )
+                }
+            } else {
+                items(
+                    uiState.result.items,
+                    key = { "${it.chart.songId}-${it.chart.songType}-${it.chart.levelIndex}" },
+                ) { item ->
+                    ChartCard(
+                        chart = item.chart,
+                        score = item.score,
+                        onClick = { onChartSelected(ChartIdentity.from(item.chart)) },
+                    )
+                }
+            }
         }
 
-        if (charts.isEmpty() && !isLoading) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                EmptyState(text = "还没有曲库数据")
-            }
-        } else if (uiState.result.items.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                EmptyState(
-                    text = if (isLoading || uiState.isIndexing || uiState.isFiltering) {
-                        "正在准备谱面结果"
-                    } else {
-                        "没有匹配的谱面"
-                    },
-                )
-            }
-        } else {
-            items(
-                uiState.result.items,
-                key = { "${it.chart.songId}-${it.chart.songType}-${it.chart.levelIndex}" },
-            ) { item ->
-                ChartCard(
-                    chart = item.chart,
-                    score = item.score,
-                    onClick = { onChartSelected(ChartIdentity.from(item.chart)) },
-                )
-            }
+        AnimatedVisibility(
+            visible = showScrollToTop,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+        ) {
+            ExtendedFloatingActionButton(
+                onClick = { scope.launch { gridState.animateScrollToItem(0) } },
+                icon = { Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null) },
+                text = { Text("回到顶部") },
+            )
         }
     }
 }
