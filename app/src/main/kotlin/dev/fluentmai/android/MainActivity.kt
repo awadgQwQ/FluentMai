@@ -746,6 +746,7 @@ private fun FluentMaiApp(
     val onTabSelected: (AppTab) -> Unit = { tab ->
         if (tab != AppTab.Charts) playedPresetActive = false
         chartScrolledAwayFromTop = false
+        chartScrollToTopRequestId = 0
         selectedTab = tab
         selectedChartKey = null
         playerProgressDestination = null
