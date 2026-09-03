@@ -56,7 +56,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -112,6 +111,7 @@ fun ScoresScreen(
     onOpenPlates: () -> Unit = {},
     onOpenRecommendations: () -> Unit = {},
     onChartSelected: (ChartIdentity) -> Unit = {},
+    scrollToTopRequestId: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val enrichedScores = remember(scores, charts) { enrichScores(scores, charts) }
@@ -123,6 +123,13 @@ fun ScoresScreen(
     }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
+    var handledScrollToTopRequestId by remember { mutableStateOf(scrollToTopRequestId) }
+    LaunchedEffect(scrollToTopRequestId) {
+        if (scrollToTopRequestId != handledScrollToTopRequestId) {
+            handledScrollToTopRequestId = scrollToTopRequestId
+            gridState.animateScrollToItem(0)
+        }
+    }
 
     LazyVerticalGrid(
         modifier = modifier.fillMaxSize(),
@@ -205,7 +212,6 @@ fun ChartQueryScreen(
     playedPresetActive: Boolean = false,
     onDismissPlayedPreset: () -> Unit = {},
     scrollToTopRequestId: Int = 0,
-    onScrolledAwayFromTopChanged: (Boolean) -> Unit = {},
     onChartSelected: (ChartIdentity) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -222,14 +228,12 @@ fun ChartQueryScreen(
         initialFirstVisibleItemIndex = queryViewModel.restoredScrollIndex,
         initialFirstVisibleItemScrollOffset = queryViewModel.restoredScrollOffset,
     )
-    val showScrollToTop by remember {
-        derivedStateOf { gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 0 }
-    }
-    LaunchedEffect(showScrollToTop) {
-        onScrolledAwayFromTopChanged(showScrollToTop)
-    }
+    var handledScrollToTopRequestId by remember { mutableStateOf(scrollToTopRequestId) }
     LaunchedEffect(scrollToTopRequestId) {
-        if (scrollToTopRequestId > 0) gridState.animateScrollToItem(0)
+        if (scrollToTopRequestId != handledScrollToTopRequestId) {
+            handledScrollToTopRequestId = scrollToTopRequestId
+            gridState.animateScrollToItem(0)
+        }
     }
     LaunchedEffect(queryViewModel, gridState) {
         snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }

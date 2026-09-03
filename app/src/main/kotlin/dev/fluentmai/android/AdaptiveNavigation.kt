@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -30,12 +28,20 @@ internal const val NAVIGATION_RAIL_MIN_WIDTH_DP = 600f
 internal fun usesNavigationRail(widthDp: Float): Boolean =
     widthDp >= NAVIGATION_RAIL_MIN_WIDTH_DP
 
+internal fun selectNavigationTab(
+    selectedTab: AppTab,
+    requestedTab: AppTab,
+    onTabSelected: (AppTab) -> Unit,
+    onSelectedTabReselected: () -> Unit,
+) {
+    if (selectedTab == requestedTab) onSelectedTabReselected() else onTabSelected(requestedTab)
+}
+
 @Composable
 internal fun AdaptiveNavigationScaffold(
     selectedTab: AppTab,
     onTabSelected: (AppTab) -> Unit,
-    showChartScrollToTopAction: Boolean = false,
-    onChartScrollToTop: () -> Unit = {},
+    onSelectedTabReselected: () -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable (PaddingValues) -> Unit,
 ) {
@@ -47,7 +53,9 @@ internal fun AdaptiveNavigationScaffold(
                     AppTab.entries.forEach { tab ->
                         NavigationRailItem(
                             selected = selectedTab == tab,
-                            onClick = { onTabSelected(tab) },
+                            onClick = {
+                                selectNavigationTab(selectedTab, tab, onTabSelected, onSelectedTabReselected)
+                            },
                             icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
                             label = { Text(text = tab.label) },
                         )
@@ -60,16 +68,13 @@ internal fun AdaptiveNavigationScaffold(
                     if (!useNavigationRail) {
                         NavigationBar {
                             AppTab.entries.forEach { tab ->
-                                val isScrollToTopAction = tab == AppTab.Charts && showChartScrollToTopAction
-                                val label = if (isScrollToTopAction) "回到顶部" else tab.label
-                                val icon = if (isScrollToTopAction) Icons.Filled.KeyboardArrowUp else tab.icon
                                 NavigationBarItem(
                                     selected = selectedTab == tab,
                                     onClick = {
-                                        if (isScrollToTopAction) onChartScrollToTop() else onTabSelected(tab)
+                                        selectNavigationTab(selectedTab, tab, onTabSelected, onSelectedTabReselected)
                                     },
-                                    icon = { Icon(imageVector = icon, contentDescription = label) },
-                                    label = { Text(text = label) },
+                                    icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
+                                    label = { Text(text = tab.label) },
                                 )
                             }
                         }

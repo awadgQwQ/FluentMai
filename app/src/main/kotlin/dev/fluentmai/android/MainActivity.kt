@@ -267,8 +267,7 @@ private fun FluentMaiApp(
     var selectedChartKey by rememberSaveable { mutableStateOf<String?>(null) }
     var playerProgressDestination by rememberSaveable { mutableStateOf<PlayerProgressDestination?>(null) }
     var playedPresetActive by rememberSaveable { mutableStateOf(false) }
-    var chartScrolledAwayFromTop by rememberSaveable { mutableStateOf(false) }
-    var chartScrollToTopRequestId by remember { mutableStateOf(0) }
+    var scrollToTopRequestId by remember { mutableStateOf(0) }
     var scoreCount by remember { mutableStateOf(0) }
     var scores by remember { mutableStateOf<List<ScoreRecord>>(emptyList()) }
     var chartRecords by remember { mutableStateOf<List<ChartRecord>>(emptyList()) }
@@ -745,8 +744,6 @@ private fun FluentMaiApp(
 
     val onTabSelected: (AppTab) -> Unit = { tab ->
         if (tab != AppTab.Charts) playedPresetActive = false
-        chartScrolledAwayFromTop = false
-        chartScrollToTopRequestId = 0
         selectedTab = tab
         selectedChartKey = null
         playerProgressDestination = null
@@ -762,9 +759,7 @@ private fun FluentMaiApp(
     AdaptiveNavigationScaffold(
         selectedTab = selectedTab,
         onTabSelected = onTabSelected,
-        showChartScrollToTopAction = selectedTab == AppTab.Charts &&
-            selectedChartIdentity == null && chartScrolledAwayFromTop,
-        onChartScrollToTop = { chartScrollToTopRequestId += 1 },
+        onSelectedTabReselected = { scrollToTopRequestId += 1 },
     ) { innerPadding ->
                 val modifier = Modifier.padding(innerPadding)
                 if (selectedChartIdentity != null) {
@@ -787,6 +782,7 @@ private fun FluentMaiApp(
                             )
                         },
                         currentVersionId = currentVersionId,
+                        scrollToTopRequestId = scrollToTopRequestId,
                         onBack = { selectedChartKey = null },
                         onChartSelected = { selectedChartKey = it.stableKey() },
                         modifier = modifier,
@@ -800,6 +796,7 @@ private fun FluentMaiApp(
                         onDestinationChanged = { playerProgressDestination = it },
                         onBack = { playerProgressDestination = null },
                         onChartSelected = { selectedChartKey = it.stableKey() },
+                        scrollToTopRequestId = scrollToTopRequestId,
                         modifier = modifier,
                     )
                 } else when (selectedTab) {
@@ -818,6 +815,7 @@ private fun FluentMaiApp(
                             playerProgressDestination = PlayerProgressDestination.RECOMMENDATIONS
                         },
                         onChartSelected = { selectedChartKey = it.stableKey() },
+                        scrollToTopRequestId = scrollToTopRequestId,
                         modifier = modifier,
                     )
 
@@ -850,6 +848,7 @@ private fun FluentMaiApp(
                         onUploadDivingFish = ::startDivingFishUpload,
                         onRebuildDivingFish = ::startDivingFishRebuild,
                         onUploadLxns = ::startLxnsUpload,
+                        scrollToTopRequestId = scrollToTopRequestId,
                         modifier = modifier,
                     )
 
@@ -862,12 +861,8 @@ private fun FluentMaiApp(
                         onRefresh = ::refreshChartRecords,
                         playedPresetActive = playedPresetActive,
                         onDismissPlayedPreset = { playedPresetActive = false },
-                        scrollToTopRequestId = chartScrollToTopRequestId,
-                        onScrolledAwayFromTopChanged = { chartScrolledAwayFromTop = it },
-                        onChartSelected = {
-                            chartScrolledAwayFromTop = false
-                            selectedChartKey = it.stableKey()
-                        },
+                        scrollToTopRequestId = scrollToTopRequestId,
+                        onChartSelected = { selectedChartKey = it.stableKey() },
                         modifier = modifier,
                     )
 
@@ -877,6 +872,7 @@ private fun FluentMaiApp(
                             quarantineCount = quarantineCount,
                             records = quarantineRecords,
                             onBack = { isSettingsOpen = false },
+                            scrollToTopRequestId = scrollToTopRequestId,
                             modifier = modifier,
                         )
                     } else {
@@ -907,6 +903,7 @@ private fun FluentMaiApp(
                                 }
                             },
                             onOpenSettings = { isSettingsOpen = true },
+                            scrollToTopRequestId = scrollToTopRequestId,
                             modifier = modifier,
                         )
                     }
