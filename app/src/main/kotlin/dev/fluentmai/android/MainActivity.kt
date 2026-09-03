@@ -267,6 +267,8 @@ private fun FluentMaiApp(
     var selectedChartKey by rememberSaveable { mutableStateOf<String?>(null) }
     var playerProgressDestination by rememberSaveable { mutableStateOf<PlayerProgressDestination?>(null) }
     var playedPresetActive by rememberSaveable { mutableStateOf(false) }
+    var chartScrolledAwayFromTop by rememberSaveable { mutableStateOf(false) }
+    var chartScrollToTopRequestId by remember { mutableStateOf(0) }
     var scoreCount by remember { mutableStateOf(0) }
     var scores by remember { mutableStateOf<List<ScoreRecord>>(emptyList()) }
     var chartRecords by remember { mutableStateOf<List<ChartRecord>>(emptyList()) }
@@ -743,6 +745,7 @@ private fun FluentMaiApp(
 
     val onTabSelected: (AppTab) -> Unit = { tab ->
         if (tab != AppTab.Charts) playedPresetActive = false
+        chartScrolledAwayFromTop = false
         selectedTab = tab
         selectedChartKey = null
         playerProgressDestination = null
@@ -758,6 +761,9 @@ private fun FluentMaiApp(
     AdaptiveNavigationScaffold(
         selectedTab = selectedTab,
         onTabSelected = onTabSelected,
+        showChartScrollToTopAction = selectedTab == AppTab.Charts &&
+            selectedChartIdentity == null && chartScrolledAwayFromTop,
+        onChartScrollToTop = { chartScrollToTopRequestId += 1 },
     ) { innerPadding ->
                 val modifier = Modifier.padding(innerPadding)
                 if (selectedChartIdentity != null) {
@@ -855,7 +861,12 @@ private fun FluentMaiApp(
                         onRefresh = ::refreshChartRecords,
                         playedPresetActive = playedPresetActive,
                         onDismissPlayedPreset = { playedPresetActive = false },
-                        onChartSelected = { selectedChartKey = it.stableKey() },
+                        scrollToTopRequestId = chartScrollToTopRequestId,
+                        onScrolledAwayFromTopChanged = { chartScrolledAwayFromTop = it },
+                        onChartSelected = {
+                            chartScrolledAwayFromTop = false
+                            selectedChartKey = it.stableKey()
+                        },
                         modifier = modifier,
                     )
 

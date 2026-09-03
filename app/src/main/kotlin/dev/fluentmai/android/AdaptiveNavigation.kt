@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -32,6 +34,8 @@ internal fun usesNavigationRail(widthDp: Float): Boolean =
 internal fun AdaptiveNavigationScaffold(
     selectedTab: AppTab,
     onTabSelected: (AppTab) -> Unit,
+    showChartScrollToTopAction: Boolean = false,
+    onChartScrollToTop: () -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable (PaddingValues) -> Unit,
 ) {
@@ -56,11 +60,16 @@ internal fun AdaptiveNavigationScaffold(
                     if (!useNavigationRail) {
                         NavigationBar {
                             AppTab.entries.forEach { tab ->
+                                val isScrollToTopAction = tab == AppTab.Charts && showChartScrollToTopAction
+                                val label = if (isScrollToTopAction) "回到顶部" else tab.label
+                                val icon = if (isScrollToTopAction) Icons.Filled.KeyboardArrowUp else tab.icon
                                 NavigationBarItem(
                                     selected = selectedTab == tab,
-                                    onClick = { onTabSelected(tab) },
-                                    icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
-                                    label = { Text(text = tab.label) },
+                                    onClick = {
+                                        if (isScrollToTopAction) onChartScrollToTop() else onTabSelected(tab)
+                                    },
+                                    icon = { Icon(imageVector = icon, contentDescription = label) },
+                                    label = { Text(text = label) },
                                 )
                             }
                         }
