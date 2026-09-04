@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -66,6 +67,8 @@ import dev.fluentmai.android.core.model.PlayerChartRecord
 import dev.fluentmai.android.core.model.ScoreRecord
 import dev.fluentmai.android.core.model.resolveCurrentMaimaiVersion
 import java.util.Locale
+
+private const val PLATE_SCROLL_TO_TOP_ANIMATION_START_INDEX = 8
 
 enum class PlayerProgressDestination { PLATES, RECOMMENDATIONS }
 
@@ -183,7 +186,7 @@ private fun PlateContent(
     LaunchedEffect(scrollToTopRequestId) {
         if (scrollToTopRequestId != handledScrollToTopRequestId) {
             handledScrollToTopRequestId = scrollToTopRequestId
-            listState.animateScrollToItem(0)
+            listState.animatePlateScrollToTop()
         }
     }
 
@@ -222,6 +225,13 @@ private fun PlateContent(
             }
         }
     }
+}
+
+private suspend fun LazyListState.animatePlateScrollToTop() {
+    if (firstVisibleItemIndex > PLATE_SCROLL_TO_TOP_ANIMATION_START_INDEX) {
+        scrollToItem(PLATE_SCROLL_TO_TOP_ANIMATION_START_INDEX)
+    }
+    animateScrollToItem(0)
 }
 
 @Composable
